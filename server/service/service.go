@@ -42,6 +42,11 @@ func (s *Service) Start() {
 	ginEngine.POST(SEND_AND_STORE_API_PATH, s.handleSendAndStore)
 	ginEngine.GET(RECEIVE_API_PATH, s.handleReceive)
 
+	err := s.bootstrap()
+	if err != nil {
+		log.Fatalf("Failed to bootstrap: %v", err)
+	}
+
 	go func() {
 		ginEngine.Run(s.config.NodeConfig.GetHTTPBindAddrPort())
 	}()
@@ -63,4 +68,9 @@ func (s *Service) handleSendAndStore(c *gin.Context) {
 
 func (s *Service) handleReceive(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})	
+}
+
+func (s *Service) bootstrap() error {
+	
+	return nil
 }
