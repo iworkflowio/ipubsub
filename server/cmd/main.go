@@ -14,8 +14,6 @@ import (
 )
 
 func main() {
-	routes := ApiHandleFunctions{}
-
 	log.Printf("Server started")
 
 	router := NewRouter(routes)

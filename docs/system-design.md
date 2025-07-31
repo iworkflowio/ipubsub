@@ -1,4 +1,51 @@
-–
+# Async Output Service - System Design
+
+## 1. Overview
+
+The Async Output Service is designed as a distributed system that enables real-time matching between applications generating outputs asynchronously and clients waiting to receive specific outputs. The system uses a gossip-based clustering approach with consistent hashing for horizontal scalability and fault tolerance.
+
+**Inspiration**: This design is similar to [Temporal's matching service architecture](https://github.com/temporalio/temporal/blob/main/docs/architecture/matching-service.md), which provides proven patterns for distributed stream matching at scale.
+
+## 2. Architecture Components
+
+### 2.1 Distributed Cluster Architecture
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│    Node A   │◄──►│    Node B   │◄──►│    Node C   │
+│             │    │             │    │             │
+│ Gossip+HTTP │    │ Gossip+HTTP │    │ Gossip+HTTP │
+│             │    │             │    │             │
+│ StreamIDs:  │    │ StreamIDs:  │    │ StreamIDs:  │
+│ hash(0-33%) │    │hash(34-66%) │    │hash(67-99%) │
+└─────────────┘    └─────────────┘    └─────────────┘
+       ▲                   ▲                   ▲
+       │                   │                   │
+   ┌───▼───┐           ┌───▼───┐           ┌───▼───┐
+   │Client │           │Client │           │Client │
+   │Send/  │           │Send/  │           │Send/  │
+   │Receive│           │Receive│           │Receive│
+   └───────┘           └───────┘           └───────┘
+```
+
+### 2.2 Core Components
+
+#### **Membership Management**
+- **Gossip Protocol**: Uses HashiCorp's memberlist library for node discovery and failure detection
+- **Cluster Formation**: Nodes join cluster via bootstrap node list
+- **Event Handling**: Real-time notifications for node join/leave/failure events
+- **Membership List**: Each node maintains complete view of cluster topology
+
+#### **Consistent Hashing Ring**
+- **Stream Routing**: Maps streamId to specific node using consistent hashing
+- **Load Distribution**: Evenly distributes streams across available nodes
+- **Fault Tolerance**: Automatic rebalancing when nodes join/leave cluster
+- **Deterministic Routing**: Same streamId always routes to same node (when topology stable)
+
+#### **Request Processing Engine**
+- **Local Processing**: Handle streams owned by current node
+- **Request Forwarding**: Proxy requests to appropriate node based on streamId ownership
+- **Sync Matching**: Real-time pairing of concurrent send/receive operations
+- **Long Polling**: Timeout-based waiting for asynchronous matching
 
 ## 3. System Flow
 
@@ -310,7 +357,6 @@ cluster:
 matching:
   default_timeout: "30s"
   max_timeout: "300s"
-  cleanup_interval: "60s"
   
 hash_ring:
   virtual_nodes: 200
