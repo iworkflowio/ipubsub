@@ -2,236 +2,255 @@
 
 ## 1. Overview
 
-The Async Output Service enables applications to return output to clients asynchronously in real-time and/or persist the output for later retrieval. It is designed as a highly scalable, performant, and distributed system to support millions of requests concurrently.
+The Async Output Service solves the core problem of connecting asynchronous output generation with real-time client consumption. When applications generate outputs asynchronously (e.g., in background processes), they need a way to deliver these outputs to specific clients who are actively waiting for them in real-time.
 
-## 2. Core Use Cases
+The service acts as a matching intermediary between:
+- **Applications** generating outputs asynchronously without direct client connections
+- **Clients** waiting to receive specific outputs immediately as they become available
 
-### 2.1 Real-time Asynchronous Output Delivery
-- **Primary Use Case**: Applications submit long-running jobs and need to return results to clients asynchronously
-- **Real-time Streaming**: Support streaming output as it becomes available during job execution
-- **Webhook Integration**: Deliver output via HTTP webhooks to client endpoints
-- **Client Polling**: Allow clients to poll for job status and output
+## 2. Core Problem Statement
 
-### 2.2 Output Persistence
-- **Durable Storage**: Persist job outputs in configurable databases for later retrieval
-- **Output History**: Maintain historical output data for audit and debugging purposes
-- **Retention Policies**: Configurable retention periods for different types of output
-- **Output Versioning**: Support multiple output versions per job
+### 2.1 The Challenge
+- Applications run background processes that generate outputs asynchronously
+- Clients need to receive these outputs in real-time as they become available
+- There's no direct connection between the async application and the waiting client
+- Thousands of output instances may be generated concurrently
+- Thousands of clients may be waiting for different specific outputs simultaneously
 
-### 2.3 High-Scale Processing
-- **Horizontal Scaling**: Support millions of concurrent job submissions
-- **Distributed Processing**: Distribute job processing across multiple service instances
-- **Load Balancing**: Efficiently distribute load across service nodes
-- **Fault Tolerance**: Continue operation despite individual node failures
+### 2.2 Key Use Cases
+- **AI Agent Progress Updates**: AI agents running background processes (LLM interactions, tool executions) need to stream progress and intermediate results to users
+- **Long-running Task Results**: Applications processing lengthy operations need to deliver results as they become available
+- **Real-time Notifications**: Background services generating events that specific clients are waiting to receive
 
-## 3. Functional Requirements
+## 3. Solution Architecture
 
-### 3.1 Job Management
-- **FR-1.1**: Submit new asynchronous jobs with metadata
-- **FR-1.2**: Retrieve job status (Running, Succeeded, Failed, Cancelled)
-- **FR-1.3**: Cancel running jobs
-- **FR-1.4**: List jobs with filtering and pagination
-- **FR-1.5**: Delete completed jobs and associated output
+### 3.1 Core Concept: Stream-based Matching
+- **Stream ID**: Unique identifier that connects output senders with receivers
+- **Real-time Matching**: Service matches `send` operations with `receive` operations in real-time
+- **Long Polling**: Both send and receive operations use long polling to wait for matching
+- **Timeout Handling**: Configurable timeouts with 424 error responses when no match occurs
 
-### 3.2 Output Handling
-- **FR-2.1**: Stream real-time output during job execution
-- **FR-2.2**: Retrieve final job output after completion
-- **FR-2.3**: Support multiple output formats (text, JSON, binary)
-- **FR-2.4**: Handle partial output delivery for long-running jobs
-- **FR-2.5**: Support output compression for large results
+### 3.2 Two-Phase Evolution
+- **Phase 1**: Real-time in-memory matching (current focus)
+- **Phase 2**: Persistent storage with replay capability
 
-### 3.3 Webhook Integration
-- **FR-3.1**: Configure webhook URLs for job status updates
-- **FR-3.2**: Deliver output via webhooks in real-time
-- **FR-3.3**: Support webhook retry policies with exponential backoff
-- **FR-3.4**: Handle webhook delivery failures gracefully
-- **FR-3.5**: Support webhook authentication (API keys, signatures)
+## 4. Functional Requirements - Phase 1 (Real-time Matching)
 
-### 3.4 Client Polling
-- **FR-4.1**: Provide REST API for job status polling
-- **FR-4.2**: Support long-polling for real-time updates
-- **FR-4.3**: Implement efficient polling with ETags and conditional requests
-- **FR-4.4**: Rate limiting for polling requests
+### 4.1 Send API
+- **FR-1.1**: Applications can send output with a streamID via long polling API
+- **FR-1.2**: Send operation waits for a matching client receiver (configurable timeout)
+- **FR-1.3**: Returns 424 error if no client is waiting within timeout period
+- **FR-1.4**: Returns success when output is successfully delivered to waiting client
+- **FR-1.5**: Support multiple output formats (text, JSON, binary)
 
-### 3.5 Namespace and Multi-tenancy
-- **FR-5.1**: Support namespace-based job isolation
-- **FR-5.2**: Enable horizontal scaling through namespace sharding
-- **FR-5.3**: Namespace-specific configuration (retention, webhooks, etc.)
-- **FR-5.4**: Namespace-level access control and quotas
+### 4.2 Receive API
+- **FR-2.1**: Clients can receive output for a specific streamID via long polling API
+- **FR-2.2**: Receive operation waits for matching output (configurable timeout)
+- **FR-2.3**: Returns 424 error if no output arrives within timeout period
+- **FR-2.4**: Returns output immediately when available
+- **FR-2.5**: Support streaming multiple outputs on the same streamID
 
-## 4. Non-Functional Requirements
+### 4.3 Stream Management
+- **FR-3.1**: StreamID-based output routing and matching
+- **FR-3.2**: Support thousands of concurrent streams
+- **FR-3.3**: Efficient matching algorithm for real-time performance
+- **FR-3.4**: Stream lifecycle management (creation, active, cleanup)
+- **FR-3.5**: Multiple clients can wait for the same streamID (broadcast)
 
-### 4.1 Performance
-- **NFR-1.1**: Support 1M+ concurrent job submissions
-- **NFR-1.2**: Sub-100ms latency for job submission
-- **NFR-1.3**: Sub-50ms latency for status queries
-- **NFR-1.4**: Support 10GB+ output sizes per job
-- **NFR-1.5**: Handle 10K+ webhook deliveries per second
+### 4.4 Error Handling
+- **FR-4.1**: 424 (Failed Dependency) for timeout scenarios
+- **FR-4.2**: Graceful handling of client disconnections
+- **FR-4.3**: Retry mechanisms for failed deliveries
+- **FR-4.4**: Connection health monitoring
 
-### 4.2 Scalability
-- **NFR-2.1**: Horizontal scaling through namespace sharding
-- **NFR-2.2**: Support 100+ service instances
-- **NFR-2.3**: Linear scaling with additional resources
-- **NFR-2.4**: Efficient resource utilization (CPU, memory, storage)
+## 5. Functional Requirements - Phase 2 (Persistence & Replay)
 
-### 4.3 Reliability
-- **NFR-3.1**: 99.9% availability (8.76 hours downtime per year)
-- **NFR-3.2**: Zero data loss for committed outputs
-- **NFR-3.3**: Automatic failover between service instances
-- **NFR-3.4**: Graceful degradation under high load
+### 5.1 Send and Store API
+- **FR-5.1**: `sendAndStore` API that persists output without waiting for clients
+- **FR-5.2**: Immediate return after successful storage
+- **FR-5.3**: Output versioning and ordering within streams
+- **FR-5.4**: Configurable retention policies per stream
 
-### 4.4 Durability
-- **NFR-4.1**: Persistent storage across service restarts
-- **NFR-4.2**: Database replication for high availability
-- **NFR-4.3**: Backup and recovery procedures
-- **NFR-4.4**: Data integrity validation
+### 5.2 Enhanced Receive API
+- **FR-6.1**: Resume token support for reading from specific points in output history
+- **FR-6.2**: Replay capability from any point in the stream
+- **FR-6.3**: Historical output retrieval
+- **FR-6.4**: Stream position tracking and management
 
-### 4.5 Security
-- **NFR-5.1**: Authentication for all API endpoints
-- **NFR-5.2**: Authorization based on namespaces and permissions
-- **NFR-5.3**: Encryption in transit (TLS 1.3)
-- **NFR-5.4**: Encryption at rest for sensitive data
-- **NFR-5.5**: Audit logging for all operations
+### 5.3 Persistence Layer
+- **FR-7.1**: Durable storage of outputs across multiple database types
+- **FR-7.2**: Stream-based partitioning for scalability
+- **FR-7.3**: Efficient querying by streamID and position
+- **FR-7.4**: Data compression for large outputs
 
-## 5. API Requirements
+## 6. API Specification
 
-### 5.1 Job Submission
+### 6.1 Send API (Phase 1)
 ```
-POST /api/v1/jobs
+POST /api/v1/streams/{streamId}/send
 {
-  "namespace": "string",
-  "jobId": "string",
+  "output": "string|object",
+  "format": "text|json|binary",
+  "timeout": "30s"
+}
+
+Responses:
+200 - Output delivered to waiting client
+424 - No client waiting (timeout exceeded)
+400 - Invalid request
+500 - Server error
+```
+
+### 6.2 Receive API (Phase 1)
+```
+GET /api/v1/streams/{streamId}/receive?timeout=30s
+
+Responses:
+200 - Output received
+{
+  "output": "string|object",
+  "format": "text|json|binary",
+  "timestamp": "2024-01-01T10:00:00Z"
+}
+
+424 - No output available (timeout exceeded)
+400 - Invalid request
+500 - Server error
+```
+
+### 6.3 Send and Store API (Phase 2)
+```
+POST /api/v1/streams/{streamId}/sendAndStore
+{
+  "output": "string|object",
+  "format": "text|json|binary",
   "metadata": {
-    "title": "string",
-    "description": "string",
-    "tags": ["string"]
-  },
-  "webhookUrl": "string",
-  "retentionPolicy": {
-    "ttl": "duration"
+    "tags": ["string"],
+    "priority": "number"
   }
 }
-```
 
-### 5.2 Job Status
-```
-GET /api/v1/jobs/{jobId}/status
-Response: {
-  "status": "Running|Succeeded|Failed|Cancelled",
-  "progress": "number",
-  "estimatedCompletion": "timestamp"
+Response:
+201 - Output stored
+{
+  "position": "number",
+  "timestamp": "2024-01-01T10:00:00Z"
 }
 ```
 
-### 5.3 Output Retrieval
+### 6.4 Enhanced Receive API (Phase 2)
 ```
-GET /api/v1/jobs/{jobId}/output
-Response: {
-  "output": "string",
+GET /api/v1/streams/{streamId}/receive?resumeToken=abc123&timeout=30s
+
+Response:
+200 - Output received
+{
+  "output": "string|object",
   "format": "text|json|binary",
-  "size": "number",
-  "completedAt": "timestamp"
+  "position": "number",
+  "timestamp": "2024-01-01T10:00:00Z",
+  "resumeToken": "def456"
 }
 ```
 
-### 5.4 Real-time Streaming
-```
-GET /api/v1/jobs/{jobId}/stream
-Response: Server-Sent Events (SSE) stream
-```
+## 7. Non-Functional Requirements
 
-## 6. Database Requirements
+### 7.1 Performance
+- **NFR-1.1**: Support 10,000+ concurrent streams
+- **NFR-1.2**: Sub-10ms matching latency for real-time operations
+- **NFR-1.3**: Handle 1,000+ send/receive operations per second
+- **NFR-1.4**: Support outputs up to 10MB in size
+- **NFR-1.5**: Memory-efficient handling of waiting connections
 
-### 6.1 Supported Databases
-- **DR-1.1**: Cassandra - For high-write throughput and horizontal scaling
-- **DR-1.2**: MongoDB - For flexible schema and document storage
-- **DR-1.3**: DynamoDB - For managed NoSQL with auto-scaling
-- **DR-1.4**: MySQL - For ACID compliance and relational data
+### 7.2 Scalability
+- **NFR-2.1**: Horizontal scaling through stream partitioning
+- **NFR-2.2**: Support for multiple service instances
+- **NFR-2.3**: Efficient load distribution across instances
+- **NFR-2.4**: Linear scaling with additional resources
+
+### 7.3 Reliability
+- **NFR-3.1**: 99.9% availability for matching operations
+- **NFR-3.2**: Graceful degradation under high load
+- **NFR-3.3**: Connection failover and recovery
+- **NFR-3.4**: Data integrity for stored outputs (Phase 2)
+
+### 7.4 Real-time Characteristics
+- **NFR-4.1**: Real-time matching with minimal buffering
+- **NFR-4.2**: Configurable timeout ranges (1s to 300s)
+- **NFR-4.3**: Efficient connection management for long polling
+- **NFR-4.4**: Low resource overhead for idle connections
+
+## 8. Database Requirements (Phase 2)
+
+### 8.1 Supported Databases
+- **DR-1.1**: Cassandra - For high-write throughput and time-series data
+- **DR-1.2**: MongoDB - For flexible document storage and indexing
+- **DR-1.3**: DynamoDB - For managed scaling and serverless deployment
+- **DR-1.4**: MySQL - For ACID compliance and structured data
 - **DR-1.5**: PostgreSQL - For advanced features and JSON support
 
-### 6.2 Schema Requirements
-- **DR-2.1**: Jobs table with namespace-based partitioning
-- **DR-2.2**: Outputs table with job association
-- **DR-2.3**: Webhook delivery tracking
-- **DR-2.4**: Namespace configuration storage
+### 8.2 Schema Design
+- **DR-2.1**: Stream-based partitioning for horizontal scaling
+- **DR-2.2**: Position-based ordering within streams
+- **DR-2.3**: Efficient querying by streamID and position range
+- **DR-2.4**: Metadata indexing for search and filtering
 
-## 7. Operational Requirements
+## 9. Implementation Strategy
 
-### 7.1 Monitoring
-- **OR-1.1**: Real-time metrics (job submission rate, completion rate, latency)
-- **OR-1.2**: Health checks for all service components
-- **OR-1.3**: Alerting for service degradation
-- **OR-1.4**: Dashboard for operational visibility
+### 9.1 Phase 1: In-Memory Matching
+- **IS-1.1**: Goroutine-based connection handling
+- **IS-1.2**: Channel-based message passing for matching
+- **IS-1.3**: Memory-efficient data structures for waiting connections
+- **IS-1.4**: Timeout management with context cancellation
 
-### 7.2 Deployment
-- **OR-2.1**: Docker containerization
-- **OR-2.2**: Kubernetes deployment support
-- **OR-2.3**: Helm charts for easy deployment
-- **OR-2.4**: Blue-green deployment support
+### 9.2 Phase 2: Persistent Storage
+- **IS-2.1**: Database abstraction layer for multi-database support
+- **IS-2.2**: Streaming write operations for high throughput
+- **IS-2.3**: Resume token generation and validation
+- **IS-2.4**: Background cleanup and retention management
 
-### 7.3 Configuration
-- **OR-3.1**: Environment-based configuration
-- **OR-3.2**: Dynamic configuration updates
-- **OR-3.3**: Namespace-specific settings
-- **OR-3.4**: Feature flags for gradual rollouts
+## 10. Success Criteria
 
-## 8. Development Phases
+### 10.1 Phase 1 Success Metrics
+- Real-time matching latency < 10ms
+- Support 10,000+ concurrent streams
+- 99.9% successful matching rate
+- Handle 1,000+ operations/second
 
-### Phase 1: Core Functionality (In Progress)
-- [x] Basic job submission and status API
-- [x] In-memory job storage
-- [x] Simple output retrieval
-- [ ] Webhook integration
-- [ ] Real-time streaming
+### 10.2 Phase 2 Success Metrics
+- Successful replay from any stream position
+- Support for streams with 1M+ outputs
+- Efficient storage utilization
+- Sub-100ms historical query response
 
-### Phase 2: Persistence and Scaling (Not Started)
-- [ ] Database integration (all supported databases)
-- [ ] Namespace-based sharding
-- [ ] Output persistence and retrieval
-- [ ] Horizontal scaling support
+## 11. Development Phases
 
-### Phase 3: Advanced Features (Future)
-- [ ] Advanced webhook features
-- [ ] Output compression and optimization
-- [ ] Advanced monitoring and observability
-- [ ] Performance optimizations
+### Phase 1: Real-time Matching (Current Priority)
+- [x] Basic in-memory stream matching
+- [x] Long polling API endpoints
+- [ ] Timeout and error handling
+- [ ] Connection management and cleanup
+- [ ] Performance optimization
+- [ ] Load testing and validation
 
-## 9. Success Criteria
+### Phase 2: Persistence and Replay (Future)
+- [ ] Database integration layer
+- [ ] sendAndStore API implementation
+- [ ] Resume token system
+- [ ] Historical data querying
+- [ ] Retention policy management
+- [ ] Migration from Phase 1
 
-### 9.1 Performance Metrics
-- Successfully handle 1M+ concurrent job submissions
-- Maintain sub-100ms latency for job operations
-- Achieve 99.9% availability target
-- Support 10GB+ output sizes
+## 12. Constraints and Assumptions
 
-### 9.2 Adoption Metrics
-- Support multiple database backends
-- Provide comprehensive API documentation
-- Include client SDKs for major languages
-- Offer web-based management interface
+### 12.1 Technical Constraints
+- Must handle high concurrency with efficient resource usage
+- Should minimize latency for real-time matching
+- Must gracefully handle network disconnections
+- Should support horizontal scaling
 
-### 9.3 Operational Metrics
-- Zero data loss incidents
-- Successful horizontal scaling demonstrations
-- Comprehensive monitoring and alerting
-- Automated deployment and testing
-
-## 10. Constraints and Assumptions
-
-### 10.1 Technical Constraints
-- Must support existing database technologies
-- Should not require external coordination services
-- Must work in containerized environments
-- Should minimize external dependencies
-
-### 10.2 Business Constraints
-- Must support multi-tenant workloads
-- Should provide clear cost models
-- Must enable gradual migration from existing systems
-- Should support hybrid cloud deployments
-
-### 10.3 Assumptions
-- Clients can handle asynchronous responses
-- Network connectivity is generally reliable
-- Database systems are properly configured
-- Monitoring and alerting infrastructure exists 
+### 12.2 Assumptions
+- Clients can handle 424 errors and implement retry logic
+- Network connectivity is generally stable for long polling
+- StreamIDs are unique and meaningful to applications
+- Applications can tolerate delivery timeouts 
