@@ -1,0 +1,14 @@
+node:
+  node_name: "test-multi-node-1"
+  gossip_bind_addr_port: "0.0.0.0:16671"
+  gossip_advertise_addr_port: "127.0.0.1:16671"
+  http_bind_addr_port: "0.0.0.0:16681"
+  http_advertise_addr_port: "127.0.0.1:16681"
+
+cluster:
+  cluster_name: "test-multi-node-cluster"
+  bootstrap_type: "static"
+  static_bootstrap_node_addr_ports:
+    - "127.0.0.1:16671"
+    - "127.0.0.1:16672"
+    - "127.0.0.1:16673"

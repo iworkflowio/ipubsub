@@ -17,7 +17,7 @@ info:
 
 
 paths:
-  /streams/send:
+  /api/v1/streams/send:
     post:
       summary: Send output to waiting clients 
       description: |
@@ -56,7 +56,7 @@ paths:
         '500':
           description: Internal Server Error
 
-  /streams/sendAndStore:
+  /api/v1/streams/sendAndStore:
     post:
       summary: Send and store output without waiting 
       description: |
@@ -85,7 +85,7 @@ paths:
         '500':
           description: Internal Server Error
 
-  /streams/receive:
+  /api/v1/streams/receive:
     get:
       summary: Receive output for a specific stream
       description: |

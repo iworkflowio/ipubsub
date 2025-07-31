@@ -1,11 +1,19 @@
 package config
 
+import (
+	"log"
+	"os"
+
+	"gopkg.in/yaml.v2"
+)
+
 type (
 	Config struct {
 		NodeConfig NodeConfig `yaml:"node"`
 		ClusterConfig ClusterConfig `yaml:"cluster"`
 		MatchConfig MatchConfig `yaml:"match"`
 		HashRingConfig HashRingConfig `yaml:"hash_ring"`
+		// TODO: add Gin engine config to customize the HTTP server using gin
 	}
 )
 
@@ -75,3 +83,29 @@ type HashRingConfig struct {
 	VirtualNodes int `yaml:"virtual_nodes"`
 }
 
+func LoadConfig(configPath string) (*Config, error) {
+	log.Printf("Loading configFile=%v\n", configPath)
+
+	config := &Config{}
+
+	file, err := os.Open(configPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	d := yaml.NewDecoder(file)
+
+	if err := d.Decode(&config); err != nil {
+		return nil, err
+	}
+
+	return config, nil
+}
+
+func (nc *NodeConfig) GetHTTPBindAddrPort() string {
+	if nc.HttpBindAddrPortFromEnv != "" {
+		return os.Getenv(nc.HttpAdvertiseAddrPortFromEnv)
+	}
+	return nc.HttpBindAddrPort
+}
