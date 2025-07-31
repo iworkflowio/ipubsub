@@ -10,29 +10,17 @@
 package genapi
 
 import (
-	"github.com/gin-gonic/gin"
+	"time"
 )
 
-type DefaultAPI struct {
-}
+type ReceiveResponse struct {
 
-// Get /streams/receive
-// Receive output for a specific stream
-func (api *DefaultAPI) ReceiveOutput(c *gin.Context) {
-	// Your handler implementation
-	c.JSON(200, gin.H{"status": "OK"})
-}
+	// The received output data as JSON object
+	Output map[string]interface{} `json:"output"`
 
-// Post /streams/sendAndStore
-// Send and store output without waiting
-func (api *DefaultAPI) SendAndStoreOutput(c *gin.Context) {
-	// Your handler implementation
-	c.JSON(200, gin.H{"status": "OK"})
-}
+	// When the output was generated
+	Timestamp time.Time `json:"timestamp"`
 
-// Post /streams/send
-// Send output to waiting clients
-func (api *DefaultAPI) SendOutput(c *gin.Context) {
-	// Your handler implementation
-	c.JSON(200, gin.H{"status": "OK"})
+	// Token for resuming from next position
+	ResumeToken string `json:"resumeToken,omitempty"`
 }

@@ -104,11 +104,10 @@ paths:
         - name: timeout
           in: query
           required: false
-          description: Maximum time to wait for output (default: 30s)
+          description: Maximum time to wait for output (default is 30s)
           schema:
             type: string
             pattern: '^[0-9]+[smh]$'
-            default: "30s"
             example: "60s"
         - name: resumeToken
           in: query
@@ -164,7 +163,6 @@ components:
         timeout:
           type: string
           pattern: '^[0-9]+[smh]$'
-          default: "30s"
           description: Maximum time to wait for matching client
           example: "60s"
 

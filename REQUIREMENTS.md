@@ -87,10 +87,10 @@ The service acts as a matching intermediary between:
 
 ### 6.1 Send API (Phase 1)
 ```
-POST /api/v1/streams/{streamId}/send
+POST /api/v1/streams/send
 {
-  "output": "string|object",
-  "format": "text|json|binary",
+  "streamId": "string",
+  "output": object,
   "timeout": "30s"
 }
 
@@ -101,16 +101,16 @@ Responses:
 500 - Server error
 ```
 
-### 6.2 Receive API (Phase 1)
+### 6.2 Receive API
 ```
-GET /api/v1/streams/{streamId}/receive?timeout=30s
+GET /api/v1/streams/receive?streamId=value&timeout=30s&resumeToken=token
 
 Responses:
 200 - Output received
 {
-  "output": "string|object",
-  "format": "text|json|binary",
-  "timestamp": "2024-01-01T10:00:00Z"
+  "output": object,
+  "timestamp": "2024-01-01T10:00:00Z",
+  "resumeToken": "def456"
 }
 
 424 - No output available (timeout exceeded)
@@ -120,37 +120,17 @@ Responses:
 
 ### 6.3 Send and Store API (Phase 2)
 ```
-POST /api/v1/streams/{streamId}/sendAndStore
+POST /api/v1/streams/sendAndStore
 {
-  "output": "string|object",
-  "format": "text|json|binary",
-  "metadata": {
-    "tags": ["string"],
-    "priority": "number"
-  }
+  "streamId": "string",
+  "output": object,
+  "ttl": "24h"
 }
 
 Response:
-201 - Output stored
-{
-  "position": "number",
-  "timestamp": "2024-01-01T10:00:00Z"
-}
-```
-
-### 6.4 Enhanced Receive API (Phase 2)
-```
-GET /api/v1/streams/{streamId}/receive?resumeToken=abc123&timeout=30s
-
-Response:
-200 - Output received
-{
-  "output": "string|object",
-  "format": "text|json|binary",
-  "position": "number",
-  "timestamp": "2024-01-01T10:00:00Z",
-  "resumeToken": "def456"
-}
+201 - Output stored successfully
+400 - Invalid request
+500 - Server error
 ```
 
 ## 7. Non-Functional Requirements

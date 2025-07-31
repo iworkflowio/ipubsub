@@ -1,16 +1,14 @@
 # Go API Server for genapi
 
-A distributed, durable timer service that can schedule and execute HTTP webhook callbacks 
-at specified times with high reliability and scalability.
+An API for real-time matching of asynchronous output generation with client consumption.
 
-## Features
-- Create one-time timers with custom payloads
-- Durable persistence across service restarts
-- At-least-once delivery semantics
-- Configurable retry policies and timeouts
-- Timer modification and cancellation
-- Callback response can update timer schedule
-- Namespace-based timer uniqueness 
+The service acts as a matching intermediary between applications generating outputs 
+asynchronously and clients waiting to receive specific outputs in real-time.
+
+**Core Concept**: Stream-based matching using streamID to connect senders with receivers.
+
+**Phase 1**: Real-time in-memory matching with long polling
+**Phase 2**: Persistent storage with replay capability
 
 
 ## Overview
@@ -24,7 +22,7 @@ To see how to make this your own, look here:
 [README](https://openapi-generator.tech)
 
 - API version: 1.0.0
-- Build date: 2025-07-23T12:42:54.088035-07:00[America/Los_Angeles]
+- Build date: 2025-07-30T22:58:22.045868-07:00[America/Los_Angeles]
 - Generator version: 7.14.0
 
 ### Running the server
