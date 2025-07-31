@@ -1,0 +1,73 @@
+openapi: 3.0.0
+info:
+  title: Async Output Service
+  description: An API for clients to retrieve output asynchronously.
+  version: "1.0.0"
+servers:
+  - url: http://localhost:8080
+paths:
+  /jobs:
+    post:
+      summary: Submit a new asynchronous job
+      operationId: submitJob
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId:
+                    type: string
+  /jobs/{jobId}/status:
+    get:
+      summary: Get job status
+      operationId: getJobStatus
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [Running, Succeeded, Failed]
+  /jobs/{jobId}/output:
+    get:
+      summary: Get job output
+      operationId: getJobOutput
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  output:
+                    type: string
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [Running]
