@@ -1,73 +1,214 @@
 openapi: 3.0.0
 info:
-  title: Async Output Service
-  description: An API for clients to retrieve output asynchronously.
+  title: Async Output Service API
+  description: |
+    An API for real-time matching of asynchronous output generation with client consumption.
+    
+    The service acts as a matching intermediary between applications generating outputs 
+    asynchronously and clients waiting to receive specific outputs in real-time.
+    
+    **Core Concept**: Stream-based matching using streamID to connect senders with receivers.
+    
+    **Phase 1**: Real-time in-memory matching with long polling
+    **Phase 2**: Persistent storage with replay capability
   version: "1.0.0"
-servers:
-  - url: http://localhost:8080
+  contact:
+    name: Async Output Service Team
+
+
 paths:
-  /jobs:
+  /streams/send:
     post:
-      summary: Submit a new asynchronous job
-      operationId: submitJob
-      responses:
-        '202':
-          description: Accepted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  jobId:
-                    type: string
-  /jobs/{jobId}/status:
-    get:
-      summary: Get job status
-      operationId: getJobStatus
-      parameters:
-        - name: jobId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    enum: [Running, Succeeded, Failed]
-  /jobs/{jobId}/output:
-    get:
-      summary: Get job output
-      operationId: getJobOutput
-      parameters:
-        - name: jobId
-          in: path
-          required: true
-          schema:
-            type: string
+      summary: Send output to waiting clients 
+      description: |
+        Applications use this endpoint to send output to clients waiting for a specific streamID.
+        Uses long polling - waits for matching clients within the configured timeout period.
+        Returns 424 if no client is waiting within timeout.
+      operationId: sendOutput
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendRequest'
+            examples:
+                basicOutput:
+                 summary: Send output
+                 value:
+                   streamId: "ai-agent-123"
+                   output: {"message": "Processing step 1 completed", "step": 1}
+                   timeout: "30s"
+                progressOutput:
+                 summary: Send progress output
+                 value:
+                   streamId: "task-456"
+                   output: {"status": "in_progress", "percentage": 25}
+                   timeout: "60s"
       responses:
         '200':
-          description: OK
+          description: Output successfully delivered to waiting client
+        '424':
+          description: Failed Dependency - No client waiting (timeout exceeded)
+        '400':
+          description: Bad Request - Invalid input parameters
+        '500':
+          description: Internal Server Error
+
+  /streams/sendAndStore:
+    post:
+      summary: Send and store output without waiting 
+      description: |
+        Applications use this endpoint to persist output without waiting for clients.
+        Returns immediately after successful storage. Clients can retrieve using receive API.
+      operationId: sendAndStoreOutput
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendAndStoreRequest'
+            examples:
+                withTTL:
+                 summary: Store output with TTL
+                 value:
+                   streamId: "batch-job-789"
+                   output: {"message": "Batch processing completed", "records": 1000}
+                   ttl: "24h"
+      responses:
+        '201':
+          description: Output stored successfully
+        '400':
+          description: Bad Request - Invalid input parameters
+        '500':
+          description: Internal Server Error
+
+  /streams/receive:
+    get:
+      summary: Receive output for a specific stream
+      description: |
+        Clients use this endpoint to receive output for a specific streamID.
+        Uses long polling - waits for matching output within the configured timeout period.
+        Returns 424 if no output arrives within timeout.
+        
+        **Phase 1**: Receives real-time matched output
+        **Phase 2**: Supports resumeToken for historical replay
+      operationId: receiveOutput
+      parameters:
+        - name: streamId
+          in: query
+          required: true
+          description: The stream identifier to receive output for
+          schema:
+            type: string
+            example: "ai-agent-123"
+        - name: timeout
+          in: query
+          required: false
+          description: Maximum time to wait for output (default: 30s)
+          schema:
+            type: string
+            pattern: '^[0-9]+[smh]$'
+            default: "30s"
+            example: "60s"
+        - name: resumeToken
+          in: query
+          required: false
+          description: Resume token for reading from specific position 
+          schema:
+            type: string
+            example: "abc123def456"
+      responses:
+        '200':
+          description: Output received successfully
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  output:
-                    type: string
-        '202':
-          description: Accepted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    enum: [Running]
+                $ref: '#/components/schemas/ReceiveResponse'
+              examples:
+                  basicResponse:
+                   summary: Real-time output
+                   value:
+                     output: {"message": "Processing step 1 completed", "step": 1}
+                     timestamp: "2024-01-01T10:00:00Z"
+                  withResumeToken:
+                   summary: With resume token
+                   value:
+                     output: {"status": "completed", "result": "success"}
+                     timestamp: "2024-01-01T10:00:00Z"
+                     resumeToken: "def456ghi789"
+        '424':
+          description: Failed Dependency - No output available (timeout exceeded)
+        '400':
+          description: Bad Request - Invalid parameters
+        '500':
+          description: Internal Server Error
+
+
+
+components:
+  schemas:
+    SendRequest:
+      type: object
+      required:
+        - streamId
+        - output
+      properties:
+        streamId:
+          type: string
+          description: Unique identifier for the output stream
+          example: "ai-agent-123"
+        output:
+          type: object
+          description: The output data to send as JSON object
+          example: {"message": "Processing step 1 completed", "step": 1}
+        timeout:
+          type: string
+          pattern: '^[0-9]+[smh]$'
+          default: "30s"
+          description: Maximum time to wait for matching client
+          example: "60s"
+
+    SendAndStoreRequest:
+      type: object
+      required:
+        - streamId
+        - output
+      properties:
+        streamId:
+          type: string
+          description: Unique identifier for the output stream
+          example: "batch-job-789"
+          minLength: 1
+          maxLength: 255
+        output:
+          type: object
+          description: The output data to store as JSON object
+          example: {"message": "Batch processing completed", "records": 1000}
+        ttl:
+          type: string
+          pattern: '^[0-9]+[smhd]$'
+          description: Time-to-live for the stored output (e.g., "1h", "24h", "7d")
+          example: "24h"
+
+    ReceiveResponse:
+      type: object
+      required:
+        - output
+        - timestamp
+      properties:
+        output:
+          type: object
+          description: The received output data as JSON object
+          example: {"message": "Processing step 1 completed", "step": 1}
+        timestamp:
+          type: string
+          format: date-time
+          description: When the output was generated
+          example: "2024-01-01T10:00:00Z"
+        resumeToken:
+          type: string
+          description: Token for resuming from next position
+          example: "def456ghi789"
+
+
+
