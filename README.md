@@ -19,6 +19,8 @@ The service acts as a matching intermediary between:
 - **Long-running Task Results**: Applications processing lengthy operations need to deliver results as they become available
 - **Real-time Notifications**: Background services generating events that specific clients are waiting to receive
 
+## Documentations
+
 * [Requirement docs](./REQUIREMENTS.md)
 * [API Design docs](./docs/api-design.md)
 * [System Design docss](./docs/system-design.md)
