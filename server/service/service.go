@@ -4,12 +4,13 @@
 package service
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/iworkflowio/async-output-service/config"
 	"github.com/iworkflowio/async-output-service/membership"
+	"github.com/iworkflowio/async-output-service/service/log"
+	"github.com/iworkflowio/async-output-service/service/log/tag"
 )
 
 const (
@@ -22,16 +23,18 @@ type Service struct {
 	config     *config.Config
 	ginEngine  *gin.Engine
 	membership membership.NodeMembership
+	logger     log.Logger
 }
 
-func NewService(config *config.Config) *Service {
+func NewService(config *config.Config, logger log.Logger) *Service {
 	return &Service{
 		config: config,
+		logger: logger,
 	}
 }
 
 func (s *Service) Start() {
-	log.Printf("Starting service")
+	s.logger.Info("Starting service")
 
 	ginEngine := gin.Default()
 	ginEngine.GET("/health", func(c *gin.Context) {
@@ -46,18 +49,18 @@ func (s *Service) Start() {
 
 	err := s.bootstrap()
 	if err != nil {
-		log.Fatalf("Failed to bootstrap: %v", err)
+		s.logger.Error("Failed to bootstrap", tag.Error(err))
 	}
 
 	go func() {
 		ginEngine.Run(s.config.NodeConfig.GetHTTPBindAddrPort())
 	}()
 
-	log.Printf("Service started")
+	s.logger.Info("Service started")
 }
 
 func (s *Service) Stop() {
-	log.Printf("Stopping service")
+	s.logger.Info("Stopping service")
 }
 
 func (s *Service) handleSend(c *gin.Context) {
@@ -73,7 +76,7 @@ func (s *Service) handleReceive(c *gin.Context) {
 }
 
 func (s *Service) bootstrap() error {
-	membership, err := membership.NewStreamMembership(s.config)
+	membership, err := membership.NewNodeMembershipImpl(s.config, s.logger)
 	if err != nil {
 		return err
 	}

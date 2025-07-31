@@ -12,9 +12,11 @@ import (
 
 type (
 	Config struct {
-		NodeConfig NodeConfig `yaml:"node"`
-		ClusterConfig ClusterConfig `yaml:"cluster"`
-		MatchConfig MatchConfig `yaml:"match"`
+		// Log is the logging config
+		Log            Logger         `yaml:"log"`
+		NodeConfig     NodeConfig     `yaml:"node"`
+		ClusterConfig  ClusterConfig  `yaml:"cluster"`
+		MatchConfig    MatchConfig    `yaml:"match"`
 		HashRingConfig HashRingConfig `yaml:"hash_ring"`
 		// TODO: add Gin engine config to customize the HTTP server using gin
 	}
@@ -57,7 +59,7 @@ type ClusterConfig struct {
 	// ClusterName is the name of the cluster.
 	ClusterName string `yaml:"cluster_name"`
 	// BootstrapType is the type of the bootstrap.
-	// It can be "static" 
+	// It can be "static"
 	// Or "aws_alb" for getting the nodes behind a aws application load balancer
 	// Or "k8s_service_pods" for getting the pods behind a kubernetes service
 	BootstrapType string `yaml:"bootstrap_type"`
@@ -87,7 +89,7 @@ type MatchConfig struct {
 	// SendDefaultTimeout is the default timeout for sending a message.
 	// It is used to set the timeout for sending a message.
 	// Default is 30 seconds.
-	SendDefaultTimeout string `yaml:"send_default_timeout"`	
+	SendDefaultTimeout string `yaml:"send_default_timeout"`
 }
 
 type HashRingConfig struct {
@@ -95,6 +97,8 @@ type HashRingConfig struct {
 	// Default is 100.
 	VirtualNodes int `yaml:"virtual_nodes"`
 }
+
+
 
 func LoadConfig(configPath string) (*Config, error) {
 	log.Printf("Loading configFile=%v\n", configPath)

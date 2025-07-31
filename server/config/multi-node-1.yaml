@@ -1,3 +1,8 @@
+log:
+  stdout: true
+  level: info
+  levelKey: "level"
+  
 node:
   node_name: "test-multi-node-1"
   gossip_bind_addr_port: "0.0.0.0:16671"

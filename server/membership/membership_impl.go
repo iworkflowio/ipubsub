@@ -2,16 +2,17 @@ package membership
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/iworkflowio/async-output-service/config"
+	"github.com/iworkflowio/async-output-service/service/log"
+	"github.com/iworkflowio/async-output-service/service/log/tag"
 )
 
-// StreamMembershipImpl implements StreamMembership using HashiCorp's memberlist
-type StreamMembershipImpl struct {
+// MembershipImpl implements NodeMembership using HashiCorp's memberlist
+type MembershipImpl struct {
 	config                *config.Config
 	memberlist            *memberlist.Memberlist
 	nodes                 []NodeInfo
@@ -20,10 +21,11 @@ type StreamMembershipImpl struct {
 	bootstrapNodeProvider *BootstrapNodeProvider
 	// protect the nodes list and node name map
 	sync.RWMutex
+	logger log.Logger
 }
 
-// NewStreamMembership creates a new StreamMembership implementation
-func NewStreamMembership(config *config.Config) (NodeMembership, error) {
+// NewNodeMembershipImpl creates a new NodeMembership implementation
+func NewNodeMembershipImpl(config *config.Config, logger log.Logger) (NodeMembership, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config cannot be nil")
 	}
@@ -44,12 +46,13 @@ func NewStreamMembership(config *config.Config) (NodeMembership, error) {
 		return nil, err
 	}
 
-	sm := &StreamMembershipImpl{
+	sm := &MembershipImpl{
 		config:                config,
 		shutdownCh:            make(chan struct{}),
 		bootstrapNodeProvider: bootstrapNodeProvider,
 		nodeNameMap:           make(map[string]bool),
 		nodes:                 make([]NodeInfo, 0),
+		logger:                logger,
 	}
 
 	mlConfig.Events = sm
@@ -65,8 +68,8 @@ func NewStreamMembership(config *config.Config) (NodeMembership, error) {
 }
 
 // Start initializes and starts joining the cluster
-func (sm *StreamMembershipImpl) Start() error {
-	log.Println("Starting stream membership service...")
+func (sm *MembershipImpl) Start() error {
+	sm.logger.Info("Starting membership service...")
 
 	// Join existing cluster if bootstrap nodes provided
 	bootstrapNodes, err := sm.bootstrapNodeProvider.GetBootstrapNodes()
@@ -79,15 +82,15 @@ func (sm *StreamMembershipImpl) Start() error {
 		bootstrapAttempts = 60
 	}
 	if len(bootstrapNodes) > 0 {
-		log.Printf("Joining cluster via bootstrap nodes: %v", bootstrapNodes)
+		sm.logger.Info("Joining cluster via bootstrap nodes", tag.Value(bootstrapNodes))
 		for i := 0; i < bootstrapAttempts; i++ {
 			successCount, err = sm.memberlist.Join(bootstrapNodes)
 			if err != nil {
-				log.Printf("Warning: failed to join some bootstrap nodes: %v \n", err)
+				sm.logger.Warn("Warning: failed to join some bootstrap nodes", tag.Error(err))
 			}
 			// check if the success count is greater than half of the bootstrap nodes
 			if successCount <= len(bootstrapNodes)/2 {
-				log.Printf("Warning: failed to join cluster via bootstrap nodes on startup, success count: %d, total bootstrap nodes: %d \n", successCount, len(bootstrapNodes))
+				sm.logger.Warn("Warning: failed to join cluster via bootstrap nodes on startup", tag.Value(successCount), tag.Value(len(bootstrapNodes)))
 				// retry after 1 second
 				time.Sleep(time.Second)
 			} else {
@@ -101,8 +104,7 @@ func (sm *StreamMembershipImpl) Start() error {
 
 	sm.updateNodes()
 
-	log.Printf("Stream membership service started. Local node: %s (%s)",
-		sm.config.NodeConfig.NodeName, sm.config.NodeConfig.GossipBindAddrPort)
+	sm.logger.Info("Membership service started. Local node", tag.Value(sm.config.NodeConfig.NodeName), tag.Value(sm.config.NodeConfig.GossipBindAddrPort))
 
 	// start a goroutine to refresh the membership information
 	go sm.refreshMembership()
@@ -111,7 +113,7 @@ func (sm *StreamMembershipImpl) Start() error {
 }
 
 // updateNodes updates the nodes list and returns true if the nodes list is changed
-func (sm *StreamMembershipImpl) updateNodes() {
+func (sm *MembershipImpl) updateNodes() {
 	sm.Lock()
 	defer sm.Unlock()
 	oldNodeNameMap := sm.nodeNameMap
@@ -139,12 +141,11 @@ func (sm *StreamMembershipImpl) updateNodes() {
 			// skip self node
 			continue
 		}
-		
+
 		if newNodeNameMap[node.Name] {
 			panic(fmt.Sprintf("Fatal: node name %s is duplicated", node.Name))
 		}
 		newNodeNameMap[node.Name] = true
-
 
 		if !oldNodeNameMap[node.Name] {
 			hasChanged = true
@@ -162,9 +163,9 @@ func (sm *StreamMembershipImpl) updateNodes() {
 		hasChanged = true
 	}
 	if hasChanged {
-		log.Printf("INFO: update nodes list from %v to %v, \n", oldNodeNameMap, newNodeNameMap)
-	}else{
-		log.Printf("INFO: no change in nodes list, %v \n", newNodeNameMap)
+		sm.logger.Info("INFO: update nodes list from", tag.Value(oldNodeNameMap), tag.Value(newNodeNameMap))
+	} else {
+		sm.logger.Info("INFO: no change in nodes list", tag.Value(newNodeNameMap))
 	}
 
 	sm.nodes = newNodesList
@@ -172,7 +173,7 @@ func (sm *StreamMembershipImpl) updateNodes() {
 
 }
 
-func (sm *StreamMembershipImpl) refreshMembership() {
+func (sm *MembershipImpl) refreshMembership() {
 	interval := sm.config.ClusterConfig.RefreshIntervalSeconds
 	if interval <= 0 {
 		interval = 30
@@ -187,17 +188,17 @@ func (sm *StreamMembershipImpl) refreshMembership() {
 			var successCount int
 			bootstrapNodes, err := sm.bootstrapNodeProvider.GetBootstrapNodes()
 			if err != nil {
-				log.Printf("Warning: failed to get bootstrap nodes on refresh: %v \n", err)
+				sm.logger.Warn("Warning: failed to get bootstrap nodes on refresh", tag.Error(err))
 				continue
 			}
 			successCount, err = sm.memberlist.Join(bootstrapNodes)
 			if err != nil {
-				log.Printf("Warning: failed to join some bootstrap nodes on refresh: %v \n", err)
+				sm.logger.Warn("Warning: failed to join some bootstrap nodes on refresh", tag.Error(err))
 				continue
 			}
 			// check if the success count is greater than half of the bootstrap nodes
 			if successCount <= len(bootstrapNodes)/2 {
-				log.Printf("Warning: failed to refresh cluster via bootstrap nodes, success count: %d, total bootstrap nodes: %d \n", successCount, len(bootstrapNodes))
+				sm.logger.Warn("Warning: failed to refresh cluster via bootstrap nodes", tag.Value(successCount), tag.Value(len(bootstrapNodes)))
 				continue
 			}
 			sm.updateNodes()
@@ -206,22 +207,22 @@ func (sm *StreamMembershipImpl) refreshMembership() {
 }
 
 // Stop gracefully shuts down the membership service
-func (sm *StreamMembershipImpl) Stop() error {
-	log.Println("Stopping stream membership service...")
+func (sm *MembershipImpl) Stop() error {
+	sm.logger.Info("Stopping membership service...")
 	sm.memberlist.Leave(1 * time.Second)
 	close(sm.shutdownCh)
-	log.Println("Stream membership service stopped")
+	sm.logger.Info("Membership service stopped")
 	return nil
 }
 
 // GetAllNodes returns all known nodes in the cluster
-func (sm *StreamMembershipImpl) GetAllNodes() ([]NodeInfo, error) {
+func (sm *MembershipImpl) GetAllNodes() ([]NodeInfo, error) {
 	sm.RLock()
 	defer sm.RUnlock()
 	return sm.nodes, nil
 }
 
-func (sm *StreamMembershipImpl) NotifyJoin(node *memberlist.Node) {
+func (sm *MembershipImpl) NotifyJoin(node *memberlist.Node) {
 	sm.Lock()
 	defer sm.Unlock()
 	sm.nodes = append(sm.nodes, NodeInfo{
@@ -230,10 +231,10 @@ func (sm *StreamMembershipImpl) NotifyJoin(node *memberlist.Node) {
 		Addr:   node.Addr.String(),
 		Port:   int(node.Port),
 	})
-	log.Printf("Node %s joined the cluster \n", node.Name)
+	sm.logger.Info("Node joined the cluster", tag.Value(node.Name))
 }
 
-func (sm *StreamMembershipImpl) NotifyLeave(node *memberlist.Node) {
+func (sm *MembershipImpl) NotifyLeave(node *memberlist.Node) {
 	sm.Lock()
 	defer sm.Unlock()
 	nodes := sm.nodes
@@ -245,9 +246,9 @@ func (sm *StreamMembershipImpl) NotifyLeave(node *memberlist.Node) {
 		newNodes = append(newNodes, nd)
 	}
 	sm.nodes = newNodes
-	log.Printf("Node %s left the cluster \n", node.Name)
+	sm.logger.Info("Node left the cluster", tag.Value(node.Name))
 }
 
-func (sm *StreamMembershipImpl) NotifyUpdate(node *memberlist.Node) {
+func (sm *MembershipImpl) NotifyUpdate(node *memberlist.Node) {
 	// NOOP
 }

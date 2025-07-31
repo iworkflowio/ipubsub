@@ -5,12 +5,16 @@ package main
 
 import (
 	"flag"
-	"log"
+	rawLog "log"
+
 	"os"
 	"os/signal"
 	"syscall"
+
 	"github.com/iworkflowio/async-output-service/config"
 	"github.com/iworkflowio/async-output-service/service"
+	"github.com/iworkflowio/async-output-service/service/log/loggerimpl"
+	"github.com/iworkflowio/async-output-service/service/log/tag"
 )
 
 func main() {
@@ -18,14 +22,21 @@ func main() {
 	flag.Parse()
 
 	if *configPath == "" {
-		log.Fatalf("config path is required, e.g. --path config/single-node.yaml, --path config/multi-node-1.yaml, --path config/multi-node-2.yaml, --path config/multi-node-3.yaml")
+		rawLog.Fatalf("config path is required, e.g. --path config/single-node.yaml, --path config/multi-node-1.yaml, --path config/multi-node-2.yaml, --path config/multi-node-3.yaml")
 	}
 
 	config, err := config.LoadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		rawLog.Fatalf("Failed to load config: %v", err)
 	}
-	svc := service.NewService(config)
+
+	zapLogger, err := config.Log.NewZapLogger()
+	if err != nil {
+		rawLog.Fatalf("Unable to create a new zap logger %v", err)
+	}
+	logger := loggerimpl.NewLogger(zapLogger).WithTags(tag.NodeName(config.NodeConfig.NodeName))
+
+	svc := service.NewService(config, logger)
 
 	svc.Start()
 
@@ -35,10 +46,10 @@ func main() {
 
 	// Wait for system signals to shutdown
 	sig := <-sigCh
-	log.Printf("Received signal %v, shutting down...", sig)
+	logger.Info("Received signal %v, shutting down...", tag.Value(sig))
 
 	svc.Stop()
 
-	log.Printf("Server stopped")
+	logger.Info("Server stopped")
 
 }
