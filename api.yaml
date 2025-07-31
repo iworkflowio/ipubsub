@@ -35,12 +35,14 @@ paths:
                 basicOutput:
                  summary: Send output
                  value:
+                   outputUuid: "123e4567-e89b-12d3-a456-426614174000"
                    streamId: "ai-agent-123"
                    output: {"message": "Processing step 1 completed", "step": 1}
                    timeout: "30s"
                 progressOutput:
                  summary: Send progress output
                  value:
+                   outputUuid: "123e4567-e89b-12d3-a456-426614174000"
                    streamId: "task-456"
                    output: {"status": "in_progress", "percentage": 25}
                    timeout: "60s"
@@ -71,6 +73,7 @@ paths:
                 withTTL:
                  summary: Store output with TTL
                  value:
+                   outputUuid: "123e4567-e89b-12d3-a456-426614174000"
                    streamId: "batch-job-789"
                    output: {"message": "Batch processing completed", "records": 1000}
                    ttl: "24h"
@@ -127,11 +130,13 @@ paths:
                   basicResponse:
                    summary: Real-time output
                    value:
+                     outputUuid: "123e4567-e89b-12d3-a456-426614174000"
                      output: {"message": "Processing step 1 completed", "step": 1}
                      timestamp: "2024-01-01T10:00:00Z"
                   withResumeToken:
                    summary: With resume token
                    value:
+                     outputUuid: "123e4567-e89b-12d3-a456-426614174000"
                      output: {"status": "completed", "result": "success"}
                      timestamp: "2024-01-01T10:00:00Z"
                      resumeToken: "def456ghi789"
@@ -149,9 +154,14 @@ components:
     SendRequest:
       type: object
       required:
-        - streamId
+        - outputUuid
         - output
+        - streamId
       properties:
+        outputUuid:
+          type: string
+          description: Unique identifier for the output
+          example: "123e4567-e89b-12d3-a456-426614174000"
         streamId:
           type: string
           description: Unique identifier for the output stream
@@ -169,9 +179,14 @@ components:
     SendAndStoreRequest:
       type: object
       required:
-        - streamId
+        - outputUuid
         - output
+        - streamId
       properties:
+        outputUuid:
+          type: string
+          description: Unique identifier for the output
+          example: "123e4567-e89b-12d3-a456-426614174000"
         streamId:
           type: string
           description: Unique identifier for the output stream
@@ -194,6 +209,10 @@ components:
         - output
         - timestamp
       properties:
+        outputUuid:
+          type: string
+          description: Unique identifier for the output
+          example: "123e4567-e89b-12d3-a456-426614174000"
         output:
           type: object
           description: The received output data as JSON object

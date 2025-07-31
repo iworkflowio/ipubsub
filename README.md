@@ -20,8 +20,8 @@ The service acts as a matching intermediary between:
 - **Real-time Notifications**: Background services generating events that specific clients are waiting to receive
 
 * [Requirement docs](./REQUIREMENTS.md)
-* [API Design docs](./docs/design/api-design.md)
-* [Database Design docss](./docs/design/database-design.md)
+* [API Design docs](./docs/api-design.md)
+* [System Design docss](./docs/system-design.md)
 * [Repo layout](./docs/repo-layout.md)
 * [Design decisoins](./DECISION_LOG.md)
 

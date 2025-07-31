@@ -11,6 +11,9 @@ package genapi
 
 type SendAndStoreRequest struct {
 
+	// Unique identifier for the output
+	OutputUuid string `json:"outputUuid"`
+
 	// Unique identifier for the output stream
 	StreamId string `json:"streamId"`
 

@@ -90,6 +90,7 @@ The service acts as a matching intermediary between:
 POST /api/v1/streams/send
 {
   "streamId": "string",
+  "outputUuid": "<UUID>",
   "output": object,
   "timeout": "30s"
 }
@@ -108,6 +109,7 @@ GET /api/v1/streams/receive?streamId=value&timeout=30s&resumeToken=token
 Responses:
 200 - Output received
 {
+  "outputUuid": "<UUID>",
   "output": object,
   "timestamp": "2024-01-01T10:00:00Z",
   "resumeToken": "def456"
@@ -122,6 +124,7 @@ Responses:
 ```
 POST /api/v1/streams/sendAndStore
 {
+  "outputUuid": "<UUID>",    
   "streamId": "string",
   "output": object,
   "ttl": "24h"

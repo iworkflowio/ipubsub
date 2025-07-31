@@ -15,6 +15,9 @@ import (
 
 type ReceiveResponse struct {
 
+	// Unique identifier for the output
+	OutputUuid string `json:"outputUuid,omitempty"`
+
 	// The received output data as JSON object
 	Output map[string]interface{} `json:"output"`
 

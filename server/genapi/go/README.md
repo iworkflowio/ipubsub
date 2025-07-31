@@ -22,7 +22,7 @@ To see how to make this your own, look here:
 [README](https://openapi-generator.tech)
 
 - API version: 1.0.0
-- Build date: 2025-07-30T22:58:22.045868-07:00[America/Los_Angeles]
+- Build date: 2025-07-31T09:43:48.762155-07:00[America/Los_Angeles]
 - Generator version: 7.14.0
 
 ### Running the server
