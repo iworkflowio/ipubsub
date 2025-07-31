@@ -18,6 +18,7 @@ The service acts as a matching intermediary between:
 - **AI Agent Progress Updates**: AI agents running background processes (LLM interactions, tool executions) need to stream progress and intermediate results to users
 - **Long-running Task Results**: Applications processing lengthy operations need to deliver results as they become available
 - **Real-time Notifications**: Background services generating events that specific clients are waiting to receive
+- **Durable Output Storage**: Applications need to persist outputs for durability, enabling clients to resume consumption from any point and replay historical outputs when needed
 
 ## System Design Overview
 

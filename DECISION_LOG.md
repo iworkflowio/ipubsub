@@ -17,7 +17,44 @@ Each decision should include:
 
 ## Decisions
 
-### [Date: 2025-01-20] Async Output Service API Design
+### [Date: 2025-07-31] Distributed System Architecture with Gossip Protocol and Consistent Hashing
+
+- **Context**: The async output service needs to scale horizontally to handle thousands of concurrent streams and millions of requests. A single-node architecture cannot meet the performance and availability requirements. The system must route send and receive requests for the same streamId to the same node for efficient real-time matching, while providing fault tolerance and automatic load balancing across multiple nodes.
+
+- **Decision**: Implement a distributed cluster architecture using HashiCorp's memberlist library for gossip-based membership management and consistent hashing for stream routing. Key components include:
+  - **Gossip Protocol**: Memberlist library for node discovery, failure detection, and cluster membership
+  - **Consistent Hashing Ring**: Virtual nodes (150-200 per physical node) for even load distribution
+  - **Request Forwarding**: HTTP-based proxy between nodes based on stream ownership
+  - **Sync Matching Engine**: In-memory FIFO matching within individual nodes
+  - **Rebalance Threshold**: 10% deviation tolerance for load balancing decisions
+
+- **Rationale**: 
+  - **Gossip Protocol Choice**: HashiCorp's memberlist provides proven, production-ready gossip implementation with built-in failure detection, encryption support, and minimal configuration overhead
+  - **Consistent Hashing Benefits**: Ensures same streamId always routes to same node (when topology stable), enables automatic load redistribution during node changes, and minimizes key movement during cluster topology changes
+  - **Virtual Nodes Strategy**: 150-200 virtual nodes per physical node provides excellent load distribution while minimizing disruption during node joins/leaves (compared to single position per node)
+  - **Request Forwarding Design**: HTTP-based forwarding is simple, debuggable, and leverages existing infrastructure; allows any node to accept requests and route appropriately
+  - **10% Rebalance Threshold**: Balances load evenness (prevents significant hot spots) with stability (avoids excessive cluster churn from minor imbalances)
+  - **Local Matching Optimization**: Processing within individual nodes eliminates cross-node coordination overhead for real-time matching
+
+- **Alternatives**: 
+  - **External Coordination**: Rejected due to added complexity and single point of failure (Zookeeper, Consul, etcd)
+  - **Database-based Routing**: Rejected due to latency overhead and scalability bottlenecks
+  - **Message Queue Distribution**: Rejected due to complexity and inability to guarantee real-time matching
+  - **WebSocket Connections**: Rejected due to connection management complexity and proxy/firewall issues
+  - **RAFT Consensus**: Rejected as overkill for eventual consistency requirements
+  - **Simple Round-robin**: Rejected as it cannot guarantee stream affinity for matching
+  - **Single Hash Position per Node**: Rejected due to poor load distribution and large key movements
+
+- **Impact**: 
+  - **Horizontal Scalability**: System can scale from 1 to 50+ nodes with linear performance improvement
+  - **Fault Tolerance**: Automatic failure detection and traffic redistribution when nodes fail
+  - **Real-time Performance**: Sub-10ms matching latency for local operations, +5-15ms overhead for forwarded requests
+  - **Operational Simplicity**: Minimal configuration required, automatic cluster formation and rebalancing
+  - **Development Complexity**: Added distributed systems complexity but using proven libraries minimizes risk
+  - **Debugging Capability**: HTTP-based forwarding enables easy request tracing and debugging
+  - **Future Scalability**: Architecture supports Phase 2 persistence and Phase 3 stream partitioning extensions
+
+### [Date: 2025-07-31] Async Output Service API Design
 
 - **Context**: Need to design a REST API for the async output service that enables real-time matching between applications generating outputs asynchronously and clients waiting to receive specific outputs. The service acts as a matching intermediary using stream-based identification. Two phases are planned: Phase 1 (in-memory real-time matching) and Phase 2 (persistent storage with replay capability). Key requirements include handling thousands of concurrent streams, sub-10ms matching latency, long polling support, and simple client integration.
 
@@ -61,6 +98,41 @@ Each decision should include:
   - **Operational Benefits**: Unified API design reduces documentation, testing, and monitoring complexity
   - **Future Flexibility**: Resume token design allows evolution of storage backends without API changes
   - **Debugging Capability**: outputUuid enables end-to-end tracing of outputs through the system
+
+- **Context**: The async output service needs to scale horizontally to handle thousands of concurrent streams and millions of requests. A single-node architecture cannot meet the performance and availability requirements. The system must route send and receive requests for the same streamId to the same node for efficient real-time matching, while providing fault tolerance and automatic load balancing across multiple nodes.
+
+- **Decision**: Implement a distributed cluster architecture using HashiCorp's memberlist library for gossip-based membership management and consistent hashing for stream routing. Key components include:
+  - **Gossip Protocol**: Memberlist library for node discovery, failure detection, and cluster membership
+  - **Consistent Hashing Ring**: Virtual nodes (150-200 per physical node) for even load distribution
+  - **Request Forwarding**: HTTP-based proxy between nodes based on stream ownership
+  - **Sync Matching Engine**: In-memory FIFO matching within individual nodes
+  - **Rebalance Threshold**: 10% deviation tolerance for load balancing decisions
+
+- **Rationale**: 
+  - **Gossip Protocol Choice**: HashiCorp's memberlist provides proven, production-ready gossip implementation with built-in failure detection, encryption support, and minimal configuration overhead
+  - **Consistent Hashing Benefits**: Ensures same streamId always routes to same node (when topology stable), enables automatic load redistribution during node changes, and minimizes key movement during cluster topology changes
+  - **Virtual Nodes Strategy**: 150-200 virtual nodes per physical node provides excellent load distribution while minimizing disruption during node joins/leaves (compared to single position per node)
+  - **Request Forwarding Design**: HTTP-based forwarding is simple, debuggable, and leverages existing infrastructure; allows any node to accept requests and route appropriately
+  - **10% Rebalance Threshold**: Balances load evenness (prevents significant hot spots) with stability (avoids excessive cluster churn from minor imbalances)
+  - **Local Matching Optimization**: Processing within individual nodes eliminates cross-node coordination overhead for real-time matching
+
+- **Alternatives**: 
+  - **External Coordination**: Rejected due to added complexity and single point of failure (Zookeeper, Consul, etcd)
+  - **Database-based Routing**: Rejected due to latency overhead and scalability bottlenecks
+  - **Message Queue Distribution**: Rejected due to complexity and inability to guarantee real-time matching
+  - **WebSocket Connections**: Rejected due to connection management complexity and proxy/firewall issues
+  - **RAFT Consensus**: Rejected as overkill for eventual consistency requirements
+  - **Simple Round-robin**: Rejected as it cannot guarantee stream affinity for matching
+  - **Single Hash Position per Node**: Rejected due to poor load distribution and large key movements
+
+- **Impact**: 
+  - **Horizontal Scalability**: System can scale from 1 to 50+ nodes with linear performance improvement
+  - **Fault Tolerance**: Automatic failure detection and traffic redistribution when nodes fail
+  - **Real-time Performance**: Sub-10ms matching latency for local operations, +5-15ms overhead for forwarded requests
+  - **Operational Simplicity**: Minimal configuration required, automatic cluster formation and rebalancing
+  - **Development Complexity**: Added distributed systems complexity but using proven libraries minimizes risk
+  - **Debugging Capability**: HTTP-based forwarding enables easy request tracing and debugging
+  - **Future Scalability**: Architecture supports Phase 2 persistence and Phase 3 stream partitioning extensions
 
 ---
 
