@@ -75,6 +75,9 @@ func (sm *StreamMembershipImpl) Start() error {
 	}
 	var successCount int
 	bootstrapAttempts := sm.config.ClusterConfig.BootstrapTimeoutSeconds
+	if bootstrapAttempts <= 0 {
+		bootstrapAttempts = 60
+	}
 	if len(bootstrapNodes) > 0 {
 		log.Printf("Joining cluster via bootstrap nodes: %v", bootstrapNodes)
 		for i := 0; i < bootstrapAttempts; i++ {
@@ -84,7 +87,7 @@ func (sm *StreamMembershipImpl) Start() error {
 			}
 			// check if the success count is greater than half of the bootstrap nodes
 			if successCount <= len(bootstrapNodes)/2 {
-				log.Printf("Warning: failed to join cluster via bootstrap nodes, success count: %d, total bootstrap nodes: %d \n", successCount, len(bootstrapNodes))
+				log.Printf("Warning: failed to join cluster via bootstrap nodes on startup, success count: %d, total bootstrap nodes: %d \n", successCount, len(bootstrapNodes))
 				// retry after 1 second
 				time.Sleep(time.Second)
 			} else {
@@ -160,6 +163,8 @@ func (sm *StreamMembershipImpl) updateNodes() {
 	}
 	if hasChanged {
 		log.Printf("INFO: update nodes list from %v to %v, \n", oldNodeNameMap, newNodeNameMap)
+	}else{
+		log.Printf("INFO: no change in nodes list, %v \n", newNodeNameMap)
 	}
 
 	sm.nodes = newNodesList

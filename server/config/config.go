@@ -63,7 +63,7 @@ type ClusterConfig struct {
 	BootstrapType string `yaml:"bootstrap_type"`
 	// StarticBootstrapNodeAddrPorts is the addresses and ports of the bootstrap nodes for static bootstrap.
 	// It is used to bootstrap the cluster.
-	StaticBootstrapNodeAddrPorts []string `yaml:"bootstrap_node_addr_ports"`
+	StaticBootstrapNodeAddrPorts []string `yaml:"static_bootstrap_node_addr_ports"`
 	// DynamicBootstrapParam is the parameter for dynamic bootstrap.
 	// For aws_alb, it is the ARN of the aws application load balancer.
 	// For k8s_service_pods, it is the name of the service.
