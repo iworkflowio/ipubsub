@@ -7,19 +7,21 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/iworkflowio/async-output-service/config"
 	"github.com/gin-gonic/gin"
+	"github.com/iworkflowio/async-output-service/config"
+	"github.com/iworkflowio/async-output-service/membership"
 )
 
 const (
-	SEND_API_PATH = "/api/v1/streams/send"
-	RECEIVE_API_PATH = "/api/v1/streams/receive"
+	SEND_API_PATH           = "/api/v1/streams/send"
+	RECEIVE_API_PATH        = "/api/v1/streams/receive"
 	SEND_AND_STORE_API_PATH = "/api/v1/streams/sendAndStore"
 )
 
 type Service struct {
-	config *config.Config
-	ginEngine *gin.Engine
+	config     *config.Config
+	ginEngine  *gin.Engine
+	membership membership.NodeMembership
 }
 
 func NewService(config *config.Config) *Service {
@@ -67,10 +69,14 @@ func (s *Service) handleSendAndStore(c *gin.Context) {
 }
 
 func (s *Service) handleReceive(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})	
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func (s *Service) bootstrap() error {
-	
-	return nil
+	membership, err := membership.NewStreamMembership(s.config)
+	if err != nil {
+		return err
+	}
+	s.membership = membership
+	return s.membership.Start()
 }

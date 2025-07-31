@@ -1,8 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"log"
+	"net"
 	"os"
+	"strconv"
 
 	"gopkg.in/yaml.v2"
 )
@@ -22,6 +25,7 @@ type NodeConfig struct {
 	NodeName string `yaml:"node_name"`
 	// NodeNameFromEnv is the name of the node from environment variable.
 	// If NodeNameFromEnv is not set, NodeName will be used.
+	// NodeName is used to identify the node in the cluster that cannot be duplicated.
 	NodeNameFromEnv string `yaml:"node_name_from_env"`
 	// GossipBindAddrPort is the bind address and port for gossip.
 	GossipBindAddrPort string `yaml:"gossip_bind_addr_port"`
@@ -63,7 +67,16 @@ type ClusterConfig struct {
 	// DynamicBootstrapParam is the parameter for dynamic bootstrap.
 	// For aws_alb, it is the ARN of the aws application load balancer.
 	// For k8s_service_pods, it is the name of the service.
-	DynamicBootstrapParam string `yaml:"dynamic_bootstrap_param"`
+	// TODO add config for other bootstrap types
+
+	// BootstrapTimeout is the timeout for the bootstrap process.
+	// To avoid network partitioning at startup, we require majority of the nodes to be connected(including self)
+	// within the timeout.
+	// Default is 60s
+	BootstrapTimeoutSeconds int `yaml:"bootstrap_timeout_seconds"`
+	// RefreshInterval is the interval for refreshing the membership information.
+	// Default is 30s + 10% jitter
+	RefreshIntervalSeconds int `yaml:"refresh_interval_seconds"`
 }
 
 type MatchConfig struct {
@@ -108,4 +121,28 @@ func (nc *NodeConfig) GetHTTPBindAddrPort() string {
 		return os.Getenv(nc.HttpAdvertiseAddrPortFromEnv)
 	}
 	return nc.HttpBindAddrPort
+}
+
+func (nc *NodeConfig) GetGossipBindAddrPort() (string, int, error) {
+	adrr, port, err := net.SplitHostPort(nc.GossipBindAddrPort)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to split host port: %s, %w", nc.GossipBindAddrPort, err)
+	}
+	portInt, err := strconv.Atoi(port)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to convert port to int: %w", err)
+	}
+	return adrr, portInt, nil
+}
+
+func (nc *NodeConfig) GetGossipAdvertiseAddrPort() (string, int, error) {
+	adrr, port, err := net.SplitHostPort(nc.GossipAdvertiseAddrPort)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to split host port: %s, %w", nc.GossipAdvertiseAddrPort, err)
+	}
+	portInt, err := strconv.Atoi(port)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to convert port to int: %w", err)
+	}
+	return adrr, portInt, nil
 }

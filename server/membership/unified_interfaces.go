@@ -1,15 +1,15 @@
 package membership
 
 type (
-	// StreamMembership is the interface for managing stream membership 
-	// Each instance of the service will have its own StreamMembership instance
+	// NodeMembership is the interface for managing stream membership
+	// Each instance of the service will have its own NodeMembership instance
 	// The manager is responsible for managing the stream membership:
-	// 1. On startup, find the current peers/nodes of the cluster if exists, or start from zero
-	// 2. Join the cluster if exists 
-	// 3. Keep track of the streams that the instance owns, and that other nodes own
-	// 4. Handle events from other nodes, e.g. node joins, node leaves, stream ownership changes
-	// 5. Handle shutdown of the instance to gracefully release the streams
-	StreamMembership interface {
+	// 1. On startup, bootstrap the membership manager with the bootstrap nodes
+	// 2. Keep track of all the nodes in the cluster(including self)
+	// 3. Handle events from other nodes, e.g. node joins, node leaves
+	// 4. Handle shutdown of the instance to gracefully shut down
+	// 5. Periodically refresh the membership information based on bootstrap nodes
+	NodeMembership interface {
 		// Start the membership manager
 		Start() error
 		// Stop the membership manager
@@ -20,7 +20,8 @@ type (
 
 	NodeInfo struct {
 		IsSelf bool
-		NodeName string
-		NodeAddr string
+		Name   string
+		Addr   string
+		Port   int
 	}
 )
