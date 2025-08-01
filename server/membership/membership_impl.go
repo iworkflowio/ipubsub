@@ -21,7 +21,8 @@ type MembershipImpl struct {
 	bootstrapNodeProvider *BootstrapNodeProvider
 	// protect the nodes list and node name map
 	sync.RWMutex
-	logger log.Logger
+	logger      log.Logger
+	refreshDone chan struct{} // Add channel to track refresh goroutine completion
 }
 
 // NewNodeMembershipImpl creates a new NodeMembership implementation
@@ -53,6 +54,7 @@ func NewNodeMembershipImpl(config *config.Config, logger log.Logger) (NodeMember
 		nodeNameMap:           make(map[string]bool),
 		nodes:                 make([]NodeInfo, 0),
 		logger:                logger,
+		refreshDone:           make(chan struct{}),
 	}
 
 	mlConfig.Events = sm
@@ -112,7 +114,7 @@ func (sm *MembershipImpl) Start() error {
 	return nil
 }
 
-// updateNodes updates the nodes list and returns true if the nodes list is changed
+// updateNodes updates the whole nodes list
 func (sm *MembershipImpl) updateNodes() {
 	sm.Lock()
 	defer sm.Unlock()
@@ -178,13 +180,18 @@ func (sm *MembershipImpl) refreshMembership() {
 	if interval <= 0 {
 		interval = 30
 	}
+	interval = int(float64(interval) * 1.1) // add 10% jitter
+
 	refreshInterval := time.Duration(interval) * time.Second
+	ticker := time.NewTicker(refreshInterval)
+	defer ticker.Stop()
+	defer close(sm.refreshDone) // Signal completion when goroutine exits
+
 	for {
 		select {
 		case <-sm.shutdownCh:
 			return
-		default:
-			time.Sleep(refreshInterval)
+		case <-ticker.C:
 			var successCount int
 			bootstrapNodes, err := sm.bootstrapNodeProvider.GetBootstrapNodes()
 			if err != nil {
@@ -211,6 +218,15 @@ func (sm *MembershipImpl) Stop() error {
 	sm.logger.Info("Stopping membership service...")
 	sm.memberlist.Leave(1 * time.Second)
 	close(sm.shutdownCh)
+
+	// Wait for refresh goroutine to complete
+	select {
+	case <-sm.refreshDone:
+		// Goroutine completed
+	case <-time.After(5 * time.Second):
+		sm.logger.Warn("Timeout waiting for refresh goroutine to stop")
+	}
+
 	sm.logger.Info("Membership service stopped")
 	return nil
 }
@@ -231,6 +247,7 @@ func (sm *MembershipImpl) NotifyJoin(node *memberlist.Node) {
 		Addr:   node.Addr.String(),
 		Port:   int(node.Port),
 	})
+	sm.nodeNameMap[node.Name] = true
 	sm.logger.Info("Node joined the cluster", tag.Value(node.Name))
 }
 
@@ -246,6 +263,7 @@ func (sm *MembershipImpl) NotifyLeave(node *memberlist.Node) {
 		newNodes = append(newNodes, nd)
 	}
 	sm.nodes = newNodes
+	delete(sm.nodeNameMap, node.Name)
 	sm.logger.Info("Node left the cluster", tag.Value(node.Name))
 }
 
