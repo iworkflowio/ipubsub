@@ -255,3 +255,138 @@ func TestHashring_ConcurrentAccess(t *testing.T) {
 		require.NoError(t, err)
 	}
 }
+
+func TestHashring_ConsistencyOnNodeChanges(t *testing.T) {
+	logger, err := loggerimpl.NewDevelopment()
+	require.NoError(t, err)
+
+	hashring := NewHashring(logger, 100) // Default virtual nodes
+
+	// Create initial 10-node cluster
+	initialNodes := make([]NodeInfo, 10)
+	for i := 0; i < 10; i++ {
+		initialNodes[i] = NodeInfo{
+			Name:   fmt.Sprintf("node%d", i+1),
+			Addr:   "127.0.0.1",
+			Port:   8080 + i,
+			IsSelf: i == 0, // node1 is self
+		}
+	}
+
+	// Generate 1000 different streamIds
+	numStreams := 1000
+	streamIds := make([]string, numStreams)
+	for i := 0; i < numStreams; i++ {
+		streamIds[i] = fmt.Sprintf("stream-%d-%d", i, i*7) // Use some variation to avoid patterns
+	}
+
+	// Get initial mappings with 10 nodes
+	initialMappings := make(map[string]string)
+	for _, streamId := range streamIds {
+		node, err := hashring.GetNodeForStreamId(streamId, 1, initialNodes)
+		require.NoError(t, err)
+		initialMappings[streamId] = node.Name
+	}
+
+	t.Run("AddingNode", func(t *testing.T) {
+		// Add 11th node (expand from 10 to 11 nodes)
+		expandedNodes := make([]NodeInfo, 11)
+		copy(expandedNodes, initialNodes)
+		expandedNodes[10] = NodeInfo{
+			Name:   "node11",
+			Addr:   "127.0.0.1",
+			Port:   8090,
+			IsSelf: false,
+		}
+
+		// Get new mappings with 11 nodes
+		newMappings := make(map[string]string)
+		for _, streamId := range streamIds {
+			node, err := hashring.GetNodeForStreamId(streamId, 2, expandedNodes)
+			require.NoError(t, err)
+			newMappings[streamId] = node.Name
+		}
+
+		// Count how many streams remained on the same node
+		sameCount := 0
+		movedToNewNode := 0
+		for _, streamId := range streamIds {
+			if initialMappings[streamId] == newMappings[streamId] {
+				sameCount++
+			} else if newMappings[streamId] == "node11" {
+				movedToNewNode++
+			}
+		}
+
+		consistencyPercentage := float64(sameCount) / float64(numStreams) * 100
+		newNodePercentage := float64(movedToNewNode) / float64(numStreams) * 100
+
+		t.Logf("After adding node11:")
+		t.Logf("  Streams stayed on same node: %d/%d (%.1f%%)", sameCount, numStreams, consistencyPercentage)
+		t.Logf("  Streams moved to new node: %d/%d (%.1f%%)", movedToNewNode, numStreams, newNodePercentage)
+		t.Logf("  Streams moved between existing nodes: %d/%d (%.1f%%)",
+			numStreams-sameCount-movedToNewNode, numStreams,
+			float64(numStreams-sameCount-movedToNewNode)/float64(numStreams)*100)
+
+		// At least 80% should remain on the same node
+		assert.GreaterOrEqual(t, consistencyPercentage, 80.0,
+			"At least 80%% of streams should remain on the same node when adding a node")
+
+		// The new node should get roughly 1/11 ≈ 9% of streams (with some tolerance)
+		assert.GreaterOrEqual(t, newNodePercentage, 5.0,
+			"New node should get at least 5%% of streams")
+		assert.LessOrEqual(t, newNodePercentage, 15.0,
+			"New node should get at most 15%% of streams")
+	})
+
+	t.Run("RemovingNode", func(t *testing.T) {
+		// Remove last node (shrink from 10 to 9 nodes)
+		reducedNodes := make([]NodeInfo, 9)
+		copy(reducedNodes, initialNodes[:9])
+
+		// Get new mappings with 9 nodes
+		newMappings := make(map[string]string)
+		for _, streamId := range streamIds {
+			node, err := hashring.GetNodeForStreamId(streamId, 3, reducedNodes)
+			require.NoError(t, err)
+			newMappings[streamId] = node.Name
+		}
+
+		// Count how many streams remained on the same node
+		sameCount := 0
+		movedFromRemovedNode := 0
+		for _, streamId := range streamIds {
+			if initialMappings[streamId] == newMappings[streamId] {
+				sameCount++
+			} else if initialMappings[streamId] == "node10" {
+				movedFromRemovedNode++
+			}
+		}
+
+		consistencyPercentage := float64(sameCount) / float64(numStreams) * 100
+		removedNodePercentage := float64(movedFromRemovedNode) / float64(numStreams) * 100
+
+		t.Logf("After removing node10:")
+		t.Logf("  Streams stayed on same node: %d/%d (%.1f%%)", sameCount, numStreams, consistencyPercentage)
+		t.Logf("  Streams moved from removed node: %d/%d (%.1f%%)", movedFromRemovedNode, numStreams, removedNodePercentage)
+		t.Logf("  Streams moved between remaining nodes: %d/%d (%.1f%%)",
+			numStreams-sameCount-movedFromRemovedNode, numStreams,
+			float64(numStreams-sameCount-movedFromRemovedNode)/float64(numStreams)*100)
+
+		// At least 80% should remain on the same node
+		assert.GreaterOrEqual(t, consistencyPercentage, 80.0,
+			"At least 80%% of streams should remain on the same node when removing a node")
+
+		// The removed node should have had roughly 1/10 = 10% of streams (with some tolerance)
+		assert.GreaterOrEqual(t, removedNodePercentage, 5.0,
+			"Removed node should have had at least 5%% of streams")
+		assert.LessOrEqual(t, removedNodePercentage, 15.0,
+			"Removed node should have had at most 15%% of streams")
+
+		// Verify no streams are mapped to the removed node
+		for _, streamId := range streamIds {
+			assert.NotEqual(t, "node10", newMappings[streamId],
+				"No streams should be mapped to removed node10")
+		}
+	})
+}
