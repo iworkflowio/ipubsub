@@ -144,8 +144,12 @@ components:
           example: "ai-agent-123"
         inMemoryStreamSize:
           type: integer
-          description: The size of the in-memory stream. Only used when writeToDB is false. Default is 100. Only applicable when the stream is empty.
+          description: The size of the in-memory stream. Only used when writeToDB is false. Default is 100. Only applicable when the stream is empty. The stream will be a circular buffer by default, meaning the oldest output will be deleted when the stream is full. But if using timeoutSecondsForInMemoryStream, the stream will not delete the oldest output when the stream is full. In certain cases, setting this to zero, and using timeoutSecondsForInMemoryStream, will make the stream behave like a sync match queue(no data loss but requires client to retry to wait for the stream to be available to write to).
           example: 100
+        timeoutSecondsForInMemoryStream:
+          type: integer
+          description: The timeout in seconds for waiting for the in-memory stream to be available to write to. Using this means the stream will not delete the oldest output when the stream is full(as acircular buffer). It will return 424 error if the stream is full after waiting.
+          example: 30
         output:
           type: object
           description: The output data to send as JSON object
