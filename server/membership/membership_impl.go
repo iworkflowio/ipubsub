@@ -132,28 +132,9 @@ func (sm *MembershipImpl) updateNodes() {
 	hasChanged := false
 
 	newNodesList := make([]NodeInfo, 0, len(sm.memberlist.Members()))
-	addr, port, err := sm.config.NodeConfig.GetGossipAdvertiseAddrPort()
-	if err != nil {
-		panic(fmt.Sprintf("Fatal: failed to get advertise addr port: %v from config", err))
-	}
-
-	selfNode := NodeInfo{
-		IsSelf: true,
-		Name:   sm.config.NodeConfig.NodeName,
-		Addr:   addr,
-		Port:   int(port),
-	}
-
-	newNodesList = append(newNodesList, selfNode)
 	newNodeNameMap := make(map[string]bool)
-	newNodeNameMap[selfNode.Name] = true
 
 	for _, node := range sm.memberlist.Members() {
-		if node.Name == sm.config.NodeConfig.NodeName {
-			// skip self node
-			continue
-		}
-
 		if newNodeNameMap[node.Name] {
 			panic(fmt.Sprintf("Fatal: node name %s is duplicated", node.Name))
 		}
@@ -163,8 +144,9 @@ func (sm *MembershipImpl) updateNodes() {
 			hasChanged = true
 		}
 
+		isSelf := node.Name == sm.config.NodeConfig.NodeName
 		newNodesList = append(newNodesList, NodeInfo{
-			IsSelf: false,
+			IsSelf: isSelf,
 			Name:   node.Name,
 			Addr:   node.Addr.String(),
 			Port:   int(node.Port),
@@ -174,6 +156,7 @@ func (sm *MembershipImpl) updateNodes() {
 	if len(oldNodeNameMap) != len(newNodeNameMap) {
 		hasChanged = true
 	}
+
 	if hasChanged {
 		sm.version++
 		sm.nodes = newNodesList
@@ -276,8 +259,14 @@ func (sm *MembershipImpl) GetAllNodes() ([]NodeInfo, error) {
 func (sm *MembershipImpl) NotifyJoin(node *memberlist.Node) {
 	sm.Lock()
 	defer sm.Unlock()
+	if sm.nodeNameMap[node.Name] {
+		sm.logger.Warn("Node already in the cluster", tag.Value(node.Name))
+		return
+	}
+	
+	isSelf := node.Name == sm.config.NodeConfig.NodeName
 	sm.nodes = append(sm.nodes, NodeInfo{
-		IsSelf: false,
+		IsSelf: isSelf,
 		Name:   node.Name,
 		Addr:   node.Addr.String(),
 		Port:   int(node.Port),

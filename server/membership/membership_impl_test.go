@@ -18,7 +18,11 @@ const (
 )
 
 func createTestLogger() log.Logger {
-	return loggerimpl.NewNopLogger()
+	logger, err := loggerimpl.NewDevelopment()
+	if err != nil {
+		panic(err)
+	}
+	return logger
 }
 
 func TestSingleNodeMembership(t *testing.T) {
@@ -45,6 +49,11 @@ func TestSingleNodeMembership(t *testing.T) {
 	assert.Len(t, nodes, 1)
 	assert.True(t, nodes[0].IsSelf)
 	assert.Equal(t, "node1", nodes[0].Name)
+
+	// Verify initial version - should be 1 after startup updateNodes call
+	impl := membership.(*MembershipImpl)
+	version := impl.GetVersion()
+	assert.Equal(t, int64(1), version, "Version should be 1 after startup updateNodes call")
 
 	err = membership.Stop()
 	require.NoError(t, err)
@@ -105,6 +114,18 @@ func TestTwoNodeCluster(t *testing.T) {
 	assert.True(t, hasNodeWithName(nodes1, "node2", false))
 	assert.True(t, hasNodeWithName(nodes2, "node1", false))
 	assert.True(t, hasNodeWithName(nodes2, "node2", true))
+
+	// Verify version tracking
+	impl1 := membership1.(*MembershipImpl)
+	impl2 := membership2.(*MembershipImpl)
+
+	version1 := impl1.GetVersion()
+	version2 := impl2.GetVersion()
+
+	// Node1: version 1 (startup) + 1 (node2 joined) = 2
+	assert.Equal(t, int64(2), version1, "Node1 version should be 2 after node2 joins")
+	// Node2: version 1 (startup) + 1 (joined cluster) = 2
+	assert.Equal(t, int64(2), version2, "Node2 version should be 2 after joining cluster")
 }
 
 func TestThreeNodeCluster(t *testing.T) {
@@ -173,6 +194,22 @@ func TestThreeNodeCluster(t *testing.T) {
 		assert.True(t, hasNodeWithName(nodes, "node2", i == 1))
 		assert.True(t, hasNodeWithName(nodes, "node3", i == 2))
 	}
+
+	// Verify version tracking for each node
+	impl1 := memberships[0].(*MembershipImpl)
+	impl2 := memberships[1].(*MembershipImpl)
+	impl3 := memberships[2].(*MembershipImpl)
+
+	version1 := impl1.GetVersion()
+	version2 := impl2.GetVersion()
+	version3 := impl3.GetVersion()
+
+	// Node1: version 1 (startup) + 1 (node2 joined) + 1 (node3 joined) = 3
+	assert.Equal(t, int64(3), version1, "Node1 version should be 3 after all nodes join")
+	// Node2: version 1 (startup) + 1 (joined node1) + 1 (node3 joined) = 3
+	assert.Equal(t, int64(3), version2, "Node2 version should be 3 after node3 joins")
+	// Node3: version 1 (startup) + 1 (joined cluster) + 1 (detected by others) = 3
+	assert.Equal(t, int64(3), version3, "Node3 version should be 3 after joining cluster")
 }
 
 func TestNodeLeaveCluster(t *testing.T) {
@@ -207,6 +244,11 @@ func TestNodeLeaveCluster(t *testing.T) {
 	waitForClusterSize(t, membership1, 2, testTimeout)
 	waitForClusterSize(t, membership2, 2, testTimeout)
 
+	// Get version before node2 leaves
+	impl1 := membership1.(*MembershipImpl)
+	versionBeforeLeave := impl1.GetVersion()
+	assert.Equal(t, int64(2), versionBeforeLeave, "Node1 version should be 2 before node2 leaves")
+
 	// Stop second node
 	err = membership2.Stop()
 	require.NoError(t, err)
@@ -219,6 +261,10 @@ func TestNodeLeaveCluster(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, nodes, 1)
 	assert.True(t, hasNodeWithName(nodes, "node1", true))
+
+	// Verify version incremented after node2 leaves
+	versionAfterLeave := impl1.GetVersion()
+	assert.Equal(t, int64(3), versionAfterLeave, "Node1 version should be 3 after node2 leaves")
 }
 
 func TestConcurrentNodeStartup(t *testing.T) {
@@ -305,6 +351,21 @@ func TestConcurrentNodeStartup(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, nodes, numNodes, "Node %d should see %d nodes", i, numNodes)
 	}
+
+	// Verify version tracking for concurrent startup
+	// Seed node should have highest version as it sees all other nodes joining
+	seedImpl := memberships[0].(*MembershipImpl)
+	seedVersion := seedImpl.GetVersion()
+
+	// Seed node: version 1 (startup) + 4 (other nodes joined) = 5
+	assert.Equal(t, int64(5), seedVersion, "Seed node version should be 5 after all nodes join")
+
+	// Other nodes should have version 5 due to membership changes detected
+	for i := 1; i < numNodes; i++ {
+		impl := memberships[i].(*MembershipImpl)
+		version := impl.GetVersion()
+		assert.Equal(t, int64(5), version, "Node %d version should be 5 due to membership changes", i)
+	}
 }
 
 func TestRefreshMembershipWithBootstrapOverride(t *testing.T) {
@@ -377,6 +438,22 @@ func TestRefreshMembershipWithBootstrapOverride(t *testing.T) {
 	nodes1, err := membership1.GetAllNodes()
 	require.NoError(t, err)
 	assert.True(t, hasNodeWithName(nodes1, "node3", false))
+
+	// Verify version tracking for refresh membership test
+	impl1 := membership1.(*MembershipImpl)
+	impl2 := membership2.(*MembershipImpl)
+	impl3 := membership3.(*MembershipImpl)
+
+	version1 := impl1.GetVersion()
+	version2 := impl2.GetVersion()
+	version3 := impl3.GetVersion()
+
+	// Seed node: version 1 (startup) + 1 (node2 joined) + 1 (node3 joined) = 3
+	assert.Equal(t, int64(3), version1, "Seed node version should be 3 after all nodes join")
+	// Node2: version 1 (startup) + 1 (joined cluster) + 1 (node3 joined) = 3
+	assert.Equal(t, int64(3), version2, "Node2 version should be 3 after node3 joins")
+	// Node3: version 1 (startup) + 1 (joined cluster) + 1 (detected by others) = 3
+	assert.Equal(t, int64(3), version3, "Node3 version should be 3 after joining cluster")
 }
 
 func TestMembershipStartError(t *testing.T) {
@@ -456,11 +533,16 @@ func TestNodeSuddenFailureDetection(t *testing.T) {
 	assert.True(t, hasNodeWithName(nodes2, "node1", false))
 	assert.True(t, hasNodeWithName(nodes2, "node2", true))
 
-	// Simulate sudden failure of node2 by force shutting down its memberlist
-	// This simulates a crash or network partition where the node doesn't gracefully leave
+	// Get version before sudden failure
+	impl1 := membership1.(*MembershipImpl)
 	impl2, ok := membership2.(*MembershipImpl)
 	require.True(t, ok, "membership2 should be of type *MembershipImpl")
 
+	versionBeforeFailure := impl1.GetVersion()
+	assert.Equal(t, int64(2), versionBeforeFailure, "Node1 version should be 2 before node2 fails")
+
+	// Simulate sudden failure of node2 by force shutting down its memberlist
+	// This simulates a crash or network partition where the node doesn't gracefully leave
 	err = impl2.forceShutdownForTest()
 	require.NoError(t, err)
 
@@ -498,6 +580,10 @@ func TestNodeSuddenFailureDetection(t *testing.T) {
 	assert.Len(t, finalNodes, 1, "node1 should only see itself after detecting node2 failure")
 	assert.True(t, hasNodeWithName(finalNodes, "node1", true))
 	assert.False(t, hasNodeWithName(finalNodes, "node2", false), "node1 should no longer see node2")
+
+	// Verify version incremented after failure detection
+	versionAfterFailure := impl1.GetVersion()
+	assert.Equal(t, int64(3), versionAfterFailure, "Node1 version should be 3 after detecting node2 failure")
 }
 
 // Helper functions
