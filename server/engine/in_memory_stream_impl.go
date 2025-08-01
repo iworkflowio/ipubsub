@@ -2,6 +2,7 @@ package engine
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -29,6 +30,12 @@ type InMemoryStreamImpl struct {
 }
 
 var ErrStreamStopped = errors.New("stream is stopped")
+
+var circularBufferMaxIterations = 100
+
+func SetCircularBufferMaxIterations(maxIterations int) {
+	circularBufferMaxIterations = maxIterations
+}
 
 func NewInMemoryStreamImpl(size int) InMemoeryStream {
 	return &InMemoryStreamImpl{
@@ -88,8 +95,8 @@ func (i *InMemoryStreamImpl) sendCircularBufferWithChannel(entry StreamEntry, ou
 		iterations := 0
 		for {
 			iterations++
-			if iterations > 100 {
-				return ErrorTypeUnknown, errors.New("failed to write to circular buffer, buffer is still full after removing oldest entry for 100 iterations")
+			if iterations > circularBufferMaxIterations {
+				return ErrorTypeCircularBufferIterationLimit, fmt.Errorf("failed to write to circular buffer, buffer is still full after removing oldest entry for %d iterations", iterations)
 			}
 			// However, this is best effort only because other operations are not using locks.
 			<-outputsChan // Remove oldest

@@ -15,7 +15,8 @@ type ErrorType int
 
 const (
 	ErrorTypeNone ErrorType = iota
-	ErrorTypeUnknown 
+	ErrorTypeUnknown
+	ErrorTypeCircularBufferIterationLimit
 	ErrorTypeWaitingTimeout
 	ErrorTypeStreamStopped
 	ErrorTypeStreamFull
