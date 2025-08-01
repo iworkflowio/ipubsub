@@ -32,54 +32,24 @@ paths:
             schema:
               $ref: '#/components/schemas/SendRequest'
             examples:
-                basicOutput:
+                inMemoryOutput:
                  summary: Send output
                  value:
                    outputUuid: "123e4567-e89b-12d3-a456-426614174000"
                    streamId: "ai-agent-123"
                    output: {"message": "Processing step 1 completed", "step": 1}
-                   timeout: "30s"
-                progressOutput:
-                 summary: Send progress output
-                 value:
-                   outputUuid: "123e4567-e89b-12d3-a456-426614174000"
-                   streamId: "task-456"
-                   output: {"status": "in_progress", "percentage": 25}
-                   timeout: "60s"
+                   inMemoryStreamSize: 1000
+                dbOutput:
+                  summary: Send output to database
+                  value:
+                    outputUuid: "123e4567-e89b-12d3-a456-426614174000"
+                    streamId: "ai-agent-123"
+                    output: {"message": "Processing step 1 completed", "step": 1}
+                    writeToDB: true
+                    dbTTLSeconds: 3600
       responses:
         '200':
           description: Output successfully delivered to waiting client
-        '424':
-          description: Failed Dependency - No client waiting (timeout exceeded)
-        '400':
-          description: Bad Request - Invalid input parameters
-        '500':
-          description: Internal Server Error
-
-  /api/v1/streams/sendAndStore:
-    post:
-      summary: Send and store output without waiting 
-      description: |
-        Applications use this endpoint to persist output without waiting for clients.
-        Returns immediately after successful storage. Clients can retrieve using receive API.
-      operationId: sendAndStoreOutput
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SendAndStoreRequest'
-            examples:
-                withTTL:
-                 summary: Store output with TTL
-                 value:
-                   outputUuid: "123e4567-e89b-12d3-a456-426614174000"
-                   streamId: "batch-job-789"
-                   output: {"message": "Batch processing completed", "records": 1000}
-                   ttl: "24h"
-      responses:
-        '201':
-          description: Output stored successfully
         '400':
           description: Bad Request - Invalid input parameters
         '500':
@@ -104,18 +74,24 @@ paths:
           schema:
             type: string
             example: "ai-agent-123"
-        - name: timeout
+        - name: timeoutSeconds
           in: query
           required: false
           description: Maximum time to wait for output (default is 30s)
           schema:
-            type: string
-            pattern: '^[0-9]+[smh]$'
-            example: "60s"
-        - name: resumeToken
+            type: integer
+            example: 60
+        - name: readFromDB
           in: query
           required: false
-          description: Resume token for reading from specific position 
+          description: Whether to read from the database. By default, this is false.
+          schema:
+            type: boolean
+            example: true
+        - name: dbResumeToken
+          in: query
+          required: false
+          description: Resume token for reading from specific position, only applicable when readFromDB is true. Can be empty which will read from the beginning.
           schema:
             type: string
             example: "abc123def456"
@@ -127,19 +103,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/ReceiveResponse'
               examples:
-                  basicResponse:
+                  inMemoryResponse:
                    summary: Real-time output
                    value:
                      outputUuid: "123e4567-e89b-12d3-a456-426614174000"
                      output: {"message": "Processing step 1 completed", "step": 1}
                      timestamp: "2024-01-01T10:00:00Z"
-                  withResumeToken:
+                  dbResponse:
                    summary: With resume token
                    value:
                      outputUuid: "123e4567-e89b-12d3-a456-426614174000"
                      output: {"status": "completed", "result": "success"}
                      timestamp: "2024-01-01T10:00:00Z"
-                     resumeToken: "def456ghi789"
+                     dbResumeToken: "def456ghi789"
         '424':
           description: Failed Dependency - No output available (timeout exceeded)
         '400':
@@ -166,42 +142,20 @@ components:
           type: string
           description: Unique identifier for the output stream
           example: "ai-agent-123"
+        inMemoryStreamSize:
+          type: integer
+          description: The size of the in-memory stream. Only used when writeToDB is false. Default is 100. Only applicable when the stream is empty.
+          example: 100
         output:
           type: object
           description: The output data to send as JSON object
           example: {"message": "Processing step 1 completed", "step": 1}
-        timeout:
-          type: string
-          pattern: '^[0-9]+[smh]$'
-          description: Maximum time to wait for matching client
-          example: "60s"
-
-    SendAndStoreRequest:
-      type: object
-      required:
-        - outputUuid
-        - output
-        - streamId
-      properties:
-        outputUuid:
-          type: string
-          description: Unique identifier for the output
-          example: "123e4567-e89b-12d3-a456-426614174000"
-        streamId:
-          type: string
-          description: Unique identifier for the output stream
-          example: "batch-job-789"
-          minLength: 1
-          maxLength: 255
-        output:
-          type: object
-          description: The output data to store as JSON object
-          example: {"message": "Batch processing completed", "records": 1000}
-        ttl:
-          type: string
-          pattern: '^[0-9]+[smhd]$'
-          description: Time-to-live for the stored output (e.g., "1h", "24h", "7d")
-          example: "24h"
+        writeToDB:
+          type: boolean
+          description: Whether to write to the database. By default, this is false. 
+        dbTTLSeconds:
+          type: integer
+          description: The TTL in seconds for the output in the database. Only used when writeToDB is true. Default is 24 * 60 * 60 (24 hours).
 
     ReceiveResponse:
       type: object
@@ -222,9 +176,9 @@ components:
           format: date-time
           description: When the output was generated
           example: "2024-01-01T10:00:00Z"
-        resumeToken:
+        dbResumeToken:
           type: string
-          description: Token for resuming from next position
+          description: Token for resuming from next position, only applicable when writeToDB is true.
           example: "def456ghi789"
 
 
