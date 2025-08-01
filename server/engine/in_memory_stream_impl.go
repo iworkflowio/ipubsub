@@ -99,14 +99,6 @@ func (i *InMemoryStreamImpl) sendBlockingQueueWithChannel(entry StreamEntry, tim
 
 // Receive implements InMemoeryStream.
 func (i *InMemoryStreamImpl) Receive(timeoutSeconds int) (output *genapi.ReceiveResponse, errorType ErrorType, err error) {
-	// Check if stopped first
-	i.RLock()
-	defer i.RUnlock()
-
-	if i.stopped {
-		return nil, ErrorTypeStreamStopped, ErrStreamStopped
-	}
-
 	select {
 	case entry := <-i.outputs:
 		// Successfully received an entry
