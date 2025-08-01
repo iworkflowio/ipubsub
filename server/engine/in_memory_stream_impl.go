@@ -72,7 +72,7 @@ func (i *InMemoryStreamImpl) Send(output OutputType, outputUuid uuid.UUID, times
 func (i *InMemoryStreamImpl) sendCircularBufferWithChannel(entry StreamEntry, outputsChan chan StreamEntry) (errorType ErrorType, err error) {
 	// Not allowed for zero capacity circular buffer
 	if i.capacity == 0 {
-		return ErrorTypeUnknown, errors.New("zero capacity circular buffer is not allowed")
+		return ErrorTypeInvalidRequest, errors.New("zero capacity circular buffer is not allowed")
 	}
 
 	select {
