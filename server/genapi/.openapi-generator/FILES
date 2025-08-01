@@ -5,7 +5,6 @@ go.mod
 go/README.md
 go/api_default.go
 go/model_receive_response.go
-go/model_send_and_store_request.go
 go/model_send_request.go
 go/routers.go
 main.go

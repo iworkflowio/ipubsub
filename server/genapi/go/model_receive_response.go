@@ -24,6 +24,6 @@ type ReceiveResponse struct {
 	// When the output was generated
 	Timestamp time.Time `json:"timestamp"`
 
-	// Token for resuming from next position
-	ResumeToken string `json:"resumeToken,omitempty"`
+	// Token for resuming from next position, only applicable when writeToDB is true.
+	DbResumeToken string `json:"dbResumeToken,omitempty"`
 }

@@ -17,9 +17,15 @@ type SendRequest struct {
 	// Unique identifier for the output stream
 	StreamId string `json:"streamId"`
 
+	// The size of the in-memory stream. Only used when writeToDB is false. Default is 100. Only applicable when the stream is empty.
+	InMemoryStreamSize int32 `json:"inMemoryStreamSize,omitempty"`
+
 	// The output data to send as JSON object
 	Output map[string]interface{} `json:"output"`
 
-	// Maximum time to wait for matching client
-	Timeout string `json:"timeout,omitempty" validate:"regexp=^[0-9]+[smh]$"`
+	// Whether to write to the database. By default, this is false.
+	WriteToDB bool `json:"writeToDB,omitempty"`
+
+	// The TTL in seconds for the output in the database. Only used when writeToDB is true. Default is 24 * 60 * 60 (24 hours).
+	DbTTLSeconds int32 `json:"dbTTLSeconds,omitempty"`
 }

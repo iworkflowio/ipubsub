@@ -16,21 +16,14 @@ import (
 type DefaultAPI struct {
 }
 
-// Get /streams/receive
+// Get /api/v1/streams/receive
 // Receive output for a specific stream
 func (api *DefaultAPI) ReceiveOutput(c *gin.Context) {
 	// Your handler implementation
 	c.JSON(200, gin.H{"status": "OK"})
 }
 
-// Post /streams/sendAndStore
-// Send and store output without waiting
-func (api *DefaultAPI) SendAndStoreOutput(c *gin.Context) {
-	// Your handler implementation
-	c.JSON(200, gin.H{"status": "OK"})
-}
-
-// Post /streams/send
+// Post /api/v1/streams/send
 // Send output to waiting clients
 func (api *DefaultAPI) SendOutput(c *gin.Context) {
 	// Your handler implementation
