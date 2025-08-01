@@ -1,22 +1,21 @@
 package engine
 
 import (
-	genapi "github.com/iworkflowio/async-output-service/genapi/go"
 	"sync"
+
+	genapi "github.com/iworkflowio/async-output-service/genapi/go"
 )
 
 type InMemoryMatchingEngine struct {
-	streams map[string]Stream // streamId -> stream
+	streams map[string]InMemoeryStream // streamId -> stream
 	sync.RWMutex
 }
 
-
 func NewInMemoryMatchingEngine() MatchingEngine {
 	return &InMemoryMatchingEngine{
-		streams: make(map[string]Stream),
+		streams: make(map[string]InMemoeryStream),
 	}
 }
-
 
 // Receive implements MatchingEngine.
 func (i *InMemoryMatchingEngine) Receive(ReceiveRequest) (resp *genapi.ReceiveResponse, isTimeout bool, err error) {

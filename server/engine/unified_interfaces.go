@@ -18,8 +18,8 @@ type MatchingEngine interface {
 	Stop() error
 }
 
-type Stream interface {
-	Send(output OutputType, outputUuid uuid.UUID, timestamp time.Time) error
+type InMemoeryStream interface {
+	Send(output OutputType, outputUuid uuid.UUID, timestamp time.Time, blockingWriteTimeoutSeconds int) error
 	Receive(timeoutSeconds int) (output *genapi.ReceiveResponse, isTimeout bool, err error)
 	Stop() error
 }
