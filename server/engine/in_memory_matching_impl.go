@@ -18,12 +18,12 @@ func NewInMemoryMatchingEngine() MatchingEngine {
 }
 
 // Receive implements MatchingEngine.
-func (i *InMemoryMatchingEngine) Receive(ReceiveRequest) (resp *genapi.ReceiveResponse, isTimeout bool, err error) {
+func (i *InMemoryMatchingEngine) Receive(ReceiveRequest) (resp *genapi.ReceiveResponse, errorType ErrorType, err error) {
 	panic("unimplemented")
 }
 
 // Send implements MatchingEngine.
-func (i *InMemoryMatchingEngine) Send(genapi.SendRequest) error {
+func (i *InMemoryMatchingEngine) Send(genapi.SendRequest) (errorType ErrorType, err error) {
 	panic("unimplemented")
 }
 
