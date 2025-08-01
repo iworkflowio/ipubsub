@@ -72,23 +72,33 @@ func (i *InMemoryStreamImpl) sendCircularBufferWithChannel(entry StreamEntry, ou
 	case outputsChan <- entry:
 		// Successfully wrote to channel
 		return ErrorTypeNone, nil
+	case <-i.stopCh:
+		return ErrorTypeStreamStopped, ErrStreamStopped
 	default:
 		// Channel is full, remove oldest entry and add new one
 		// Use write lock to protect the two operations below
 		i.Lock()
 		defer i.Unlock()
+
+		// Check if stopped while waiting for lock
+		if i.stopped {
+			return ErrorTypeStreamStopped, ErrStreamStopped
+		}
+
 		iterations := 0
 		for {
 			iterations++
 			if iterations > 100 {
 				return ErrorTypeUnknown, errors.New("failed to write to circular buffer, buffer is still full after removing oldest entry for 100 iterations")
 			}
-			// However, this is best effort only because other operations are using read lock.
-			<-outputsChan        // Remove oldest
+			// However, this is best effort only because other operations are not using locks.
+			<-outputsChan // Remove oldest
 			select {
 			case outputsChan <- entry:
 				// Successfully wrote to channel
 				return ErrorTypeNone, nil
+			case <-i.stopCh:
+				return ErrorTypeStreamStopped, ErrStreamStopped
 			default:
 				// Channel is still full, do it again
 				continue
@@ -99,9 +109,6 @@ func (i *InMemoryStreamImpl) sendCircularBufferWithChannel(entry StreamEntry, ou
 
 // sendBlockingQueueWithChannel implements blocking queue behavior - waits for space and returns error on timeout
 func (i *InMemoryStreamImpl) sendBlockingQueueWithChannel(entry StreamEntry, timeoutSeconds int, outputsChan chan StreamEntry) (errorType ErrorType, err error) {
-	i.RLock()
-	defer i.RUnlock()
-
 	select {
 	case outputsChan <- entry:
 		// Successfully wrote to channel
@@ -116,8 +123,10 @@ func (i *InMemoryStreamImpl) sendBlockingQueueWithChannel(entry StreamEntry, tim
 
 // Receive implements InMemoeryStream.
 func (i *InMemoryStreamImpl) Receive(timeoutSeconds int) (output *genapi.ReceiveResponse, errorType ErrorType, err error) {
-	i.RLock()
-	defer i.RUnlock()
+	// Quick check if stopped (without lock since it's just a read)
+	if i.stopped {
+		return nil, ErrorTypeStreamStopped, ErrStreamStopped
+	}
 
 	select {
 	case entry := <-i.outputs:

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -151,7 +150,7 @@ func TestInMemoryStreamImpl_BlockingQueueMode(t *testing.T) {
 	})
 
 	t.Run("BlockingQueueUnblocksWhenSpaceAvailable", func(t *testing.T) {
-		// This test reveals the locking issue - let's make it simpler for now
+		// Create fresh stream for this test
 		testStream := NewInMemoryStreamImpl(1) // Buffer size 1
 		defer testStream.Stop()
 
@@ -160,21 +159,35 @@ func TestInMemoryStreamImpl_BlockingQueueMode(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
-		// Test that we can still receive from a blocked send
-		var wg sync.WaitGroup
-		wg.Add(1)
-
+		// Start a goroutine to send with blocking
+		sendComplete := make(chan struct {
+			errorType ErrorType
+			err       error
+		}, 1)
 		go func() {
-			defer wg.Done()
-			// Wait a bit then consume to make space
-			time.Sleep(200 * time.Millisecond)
-			_, _, err := testStream.Receive(1)
-			require.NoError(t, err)
+			output := OutputType{"message": "delayed"}
+			errorType, err := testStream.Send(output, uuid.New(), time.Now(), 5) // 5 second timeout
+			sendComplete <- struct {
+				errorType ErrorType
+				err       error
+			}{errorType, err}
 		}()
 
-		// This test will pass with current implementation since locking prevents true concurrency
-		// The Send will complete after Receive unlocks
-		wg.Wait()
+		// Wait a bit to ensure the send is blocking
+		time.Sleep(100 * time.Millisecond)
+
+		// Receive to make space - this should unblock the send
+		_, _, err = testStream.Receive(1)
+		require.NoError(t, err)
+
+		// The blocking send should now complete
+		select {
+		case result := <-sendComplete:
+			require.NoError(t, result.err)
+			assert.Equal(t, ErrorTypeNone, result.errorType)
+		case <-time.After(2 * time.Second):
+			t.Fatal("Send should have unblocked after receive")
+		}
 	})
 }
 
@@ -193,14 +206,49 @@ func TestInMemoryStreamImpl_SyncMatchQueueMode(t *testing.T) {
 	})
 
 	t.Run("SyncMatchWithActiveConsumer", func(t *testing.T) {
-		// This test also shows the locking issue - let's simplify
-		// With current locking, true sync matching isn't possible
-		// So let's test that zero capacity with blocking at least behaves predictably
+		// Now that locking is improved, let's test real sync matching
+		receiveResult := make(chan struct {
+			resp      *genapi.ReceiveResponse
+			errorType ErrorType
+			err       error
+		}, 1)
 
-		output := OutputType{"message": "sync test"}
-		errorType, err := stream.Send(output, uuid.New(), time.Now(), 1)
-		require.Error(t, err)
-		assert.Equal(t, ErrorTypeWaitingTimeout, errorType)
+		// Start consumer in background
+		go func() {
+			resp, errorType, err := stream.Receive(5) // 5 second timeout
+			receiveResult <- struct {
+				resp      *genapi.ReceiveResponse
+				errorType ErrorType
+				err       error
+			}{resp, errorType, err}
+		}()
+
+		// Wait a bit to ensure consumer is waiting
+		time.Sleep(100 * time.Millisecond)
+
+		// Now send should succeed (zero capacity + active consumer)
+		output := OutputType{"message": "sync success"}
+		uuid1 := uuid.New()
+
+		start := time.Now()
+		errorType, err := stream.Send(output, uuid1, time.Now(), 2) // 2 second timeout
+		sendDuration := time.Since(start)
+
+		// With improved locking, this should work
+		require.NoError(t, err)
+		assert.Equal(t, ErrorTypeNone, errorType)
+		assert.Less(t, sendDuration, 1*time.Second) // Should be fast
+
+		// Consumer should receive the message
+		select {
+		case result := <-receiveResult:
+			require.NoError(t, result.err)
+			assert.Equal(t, ErrorTypeNone, result.errorType)
+			assert.Equal(t, uuid1.String(), result.resp.OutputUuid)
+			assert.Equal(t, output, result.resp.Output)
+		case <-time.After(3 * time.Second):
+			t.Fatal("Consumer should have received the message")
+		}
 	})
 }
 
@@ -481,31 +529,41 @@ func TestInMemoryStreamImpl_ComprehensiveEdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
-		// Test with very long timeout (but interrupt with stop)
+		// Test with moderately long timeout (but not extreme) to verify stop interruption
 		start := time.Now()
 
 		// Start blocking send in goroutine
-		done := make(chan struct{})
+		done := make(chan struct {
+			errorType ErrorType
+			err       error
+		})
 		go func() {
 			defer close(done)
-			errorType, err := stream.Send(OutputType{"message": "long timeout"}, uuid.New(), time.Now(), 3600) // 1 hour
-			// Should be interrupted by stop, not timeout
-			if err != nil {
-				assert.Equal(t, ErrorTypeStreamStopped, errorType)
-			}
+			// Use 10 second timeout instead of 1 hour to avoid test hanging
+			errorType, err := stream.Send(OutputType{"message": "long timeout"}, uuid.New(), time.Now(), 10)
+			done <- struct {
+				errorType ErrorType
+				err       error
+			}{errorType, err}
 		}()
 
 		// Let it start blocking
 		time.Sleep(100 * time.Millisecond)
 
-		// Stop the stream
-		stream.Stop()
+		// Stop the stream - this should interrupt the blocking send
+		err = stream.Stop()
+		require.NoError(t, err)
 
 		// Should complete quickly
 		select {
-		case <-done:
+		case result := <-done:
 			duration := time.Since(start)
-			assert.Less(t, duration, 2*time.Second) // Should complete quickly, not after 1 hour
+			// Should complete quickly due to stop, not after 10 seconds
+			assert.Less(t, duration, 2*time.Second)
+			// Should be interrupted by stop
+			if result.err != nil {
+				assert.Equal(t, ErrorTypeStreamStopped, result.errorType)
+			}
 		case <-time.After(3 * time.Second):
 			t.Fatal("Operation should have completed quickly after stop")
 		}
@@ -705,28 +763,6 @@ func BenchmarkInMemoryStreamImpl_Send(b *testing.B) {
 		errorType, err := stream.Send(output, uid, timestamp, 0)
 		if err != nil || errorType != ErrorTypeNone {
 			b.Fatalf("Send failed: %v, errorType: %v", err, errorType)
-		}
-	}
-}
-
-func BenchmarkInMemoryStreamImpl_Receive(b *testing.B) {
-	stream := NewInMemoryStreamImpl(1000000)
-	defer stream.Stop()
-
-	// Pre-fill the stream
-	output := OutputType{"message": "benchmark"}
-	uid := uuid.New()
-	timestamp := time.Now()
-
-	for i := 0; i < b.N; i++ {
-		stream.Send(output, uid, timestamp, 0)
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, errorType, err := stream.Receive(1)
-		if err != nil || errorType != ErrorTypeNone {
-			b.Fatalf("Receive failed: %v, errorType: %v", err, errorType)
 		}
 	}
 }
