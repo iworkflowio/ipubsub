@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -10,16 +11,22 @@ import (
 
 type InMemoryMatchingEngine struct {
 	streams map[string]InMemoeryStream // streamId -> stream
+	// Map of channels for stream creation notifications
+	// Key: streamId, Value: channel that gets closed when stream is created
+	streamCreationNotifiers map[string]chan struct{}
 	sync.RWMutex
 	stopped bool
+	stopCh  chan struct{} // Channel to signal stop to waiting operations
 }
 
 const defaultInMemoryStreamSize = 100
 
 func NewInMemoryMatchingEngine() MatchingEngine {
 	return &InMemoryMatchingEngine{
-		streams: make(map[string]InMemoeryStream),
-		stopped: false,
+		streams:                 make(map[string]InMemoeryStream),
+		streamCreationNotifiers: make(map[string]chan struct{}),
+		stopped:                 false,
+		stopCh:                  make(chan struct{}),
 	}
 }
 
@@ -27,6 +34,10 @@ func NewInMemoryMatchingEngine() MatchingEngine {
 func (i *InMemoryMatchingEngine) Start() error {
 	i.Lock()
 	defer i.Unlock()
+
+	if i.stopped {
+		return errors.New("matching engine is already stopped")
+	}
 
 	i.stopped = false
 	return nil
@@ -43,13 +54,18 @@ func (i *InMemoryMatchingEngine) Stop() error {
 
 	i.stopped = true
 
+	// Signal all waiting operations to stop
+	close(i.stopCh)
+
+	// Close all stream creation notifier channels
+	for _, notifierCh := range i.streamCreationNotifiers {
+		safeClose(notifierCh)
+	}
+
 	// Stop all streams
 	for _, stream := range i.streams {
 		stream.Stop()
 	}
-
-	// Clear the streams map
-	i.streams = make(map[string]InMemoeryStream)
 
 	return nil
 }
@@ -95,6 +111,13 @@ func (i *InMemoryMatchingEngine) Send(req genapi.SendRequest) (errorType ErrorTy
 
 			stream = NewInMemoryStreamImpl(streamSize)
 			i.streams[streamId] = stream
+
+			// Notify any waiting Receive() calls by closing the notifier channel
+			if notifierCh, exists := i.streamCreationNotifiers[streamId]; exists {
+				safeClose(notifierCh)
+				// delete because we will no longer need this notifier since the stream is created
+				delete(i.streamCreationNotifiers, streamId)
+			}
 		}
 		i.Unlock()
 	}
@@ -121,13 +144,14 @@ func (i *InMemoryMatchingEngine) Receive(req ReceiveRequest) (resp *genapi.Recei
 	}
 
 	streamId := req.StreamId
-	var stream InMemoeryStream
-	var streamExists bool
+	timeoutSeconds := req.TimeoutSeconds
+	timeout := time.Duration(timeoutSeconds) * time.Second
 
-	// Get stream with read lock
+	// First, try to get existing stream
 	i.RLock()
-	stream, streamExists = i.streams[streamId]
+	stream, streamExists := i.streams[streamId]
 	stopped := i.stopped
+	stopCh := i.stopCh // Capture the stop channel
 	i.RUnlock()
 
 	// Check stopped after releasing read lock
@@ -135,11 +159,84 @@ func (i *InMemoryMatchingEngine) Receive(req ReceiveRequest) (resp *genapi.Recei
 		return nil, ErrorTypeStreamStopped, ErrStreamStopped
 	}
 
-	// If stream doesn't exist, return timeout immediately
-	if !streamExists {
-		return nil, ErrorTypeWaitingTimeout, nil
+	if streamExists {
+		// Stream already exists, receive directly
+		return stream.Receive(timeoutSeconds)
 	}
 
-	// Receive from the stream (no locks needed, stream handles its own concurrency)
-	return stream.Receive(req.TimeoutSeconds)
+	// Stream doesn't exist, create a notifier channel and wait for stream creation
+	var notifierCh chan struct{}
+
+	i.Lock()
+	// Double-check: stream might have been created while acquiring write lock
+	if stream, streamExists = i.streams[streamId]; streamExists {
+		i.Unlock()
+		// Stream was created, receive directly
+		return stream.Receive(timeoutSeconds)
+	}
+
+	// Check stopped again while holding write lock
+	if i.stopped {
+		i.Unlock()
+		return nil, ErrorTypeStreamStopped, ErrStreamStopped
+	}
+
+	// Stream still doesn't exist, check if there's already a notifier for this streamId
+	if existingNotifier, exists := i.streamCreationNotifiers[streamId]; exists {
+		// Use existing notifier
+		notifierCh = existingNotifier
+	} else {
+		// Create new notifier channel
+		notifierCh = make(chan struct{})
+		i.streamCreationNotifiers[streamId] = notifierCh
+	}
+
+	i.Unlock()
+
+	// Wait for stream creation, timeout, or stop signal
+	startTime := time.Now()
+	select {
+	case <-notifierCh:
+		// Stream was created! Try to get it and receive
+		i.RLock()
+		stream, streamExists = i.streams[streamId]
+		stopped = i.stopped
+		i.RUnlock()
+
+		if stopped {
+			return nil, ErrorTypeStreamStopped, ErrStreamStopped
+		}
+
+		if streamExists {
+			// Calculate remaining timeout for the actual receive
+			remainingTime := timeout - time.Since(startTime)
+			remainingSeconds := int(remainingTime.Seconds())
+
+			// Ensure we have at least 1 second for the actual receive operation
+			if remainingSeconds < 1 {
+				return nil, ErrorTypeWaitingTimeout, nil
+			}
+
+			return stream.Receive(remainingSeconds)
+		}
+
+		// This shouldn't happen, but handle gracefully
+		return nil, ErrorTypeUnknown, nil
+
+	case <-time.After(timeout):
+		return nil, ErrorTypeWaitingTimeout, nil
+
+	case <-stopCh:
+		// Engine stopped
+		return nil, ErrorTypeStreamStopped, ErrStreamStopped
+	}
+}
+
+func safeClose(ch chan struct{}) {
+    select {
+    case <-ch:
+        // Already closed, do nothing
+    default:
+        close(ch)
+    }
 }

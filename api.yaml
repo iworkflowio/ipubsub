@@ -144,7 +144,7 @@ components:
           example: "ai-agent-123"
         inMemoryStreamSize:
           type: integer
-          description: The size of the in-memory stream. Only used when writeToDB is false. Default is 100. Will be used at the first request of send or receive of the stream. The stream will be a circular buffer unless using blockingWriteTimeoutSeconds. Circular buffer means the oldest output will be deleted when the stream is full. If using blockingWriteTimeoutSeconds, the stream will not delete the oldest output when the stream is full. In certain cases, setting this to zero, and using blockingWriteTimeoutSeconds, will make the stream behave like a sync match queue(no data loss but requires client to retry to wait for the stream to be available to write to).
+          description: The size of the in-memory stream. Only used when writeToDB is false. Default is 100. It will be used at the first request of send API call for the stream, until the async output service instance is stopped. The stream will be a circular buffer unless using blockingWriteTimeoutSeconds. Circular buffer means the oldest output will be deleted when the stream is full. If using blockingWriteTimeoutSeconds, the stream will not delete the oldest output when the stream is full. In certain cases, setting this to zero, and using blockingWriteTimeoutSeconds, will make the stream behave like a sync match queue(no data loss but requires client to retry to wait for the stream to be available to write to).
           example: 100
         blockingWriteTimeoutSeconds:
           type: integer
