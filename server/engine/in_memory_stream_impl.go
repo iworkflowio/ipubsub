@@ -18,14 +18,14 @@ type StreamEntry struct {
 
 type InMemoryStreamImpl struct {
 	outputs chan StreamEntry
-	// protect the channel and state
-	sync.RWMutex
 	// indicates if the stream is stopped
 	stopped bool
 	// channel capacity for reference
 	capacity int
 	// channel to signal stop
 	stopCh chan struct{}
+	// protect the channel and state
+	sync.RWMutex
 }
 
 var ErrStreamStopped = errors.New("stream is stopped")
@@ -42,9 +42,6 @@ func NewInMemoryStreamImpl(size int) InMemoeryStream {
 // Send implements InMemoeryStream.
 func (i *InMemoryStreamImpl) Send(output OutputType, outputUuid uuid.UUID, timestamp time.Time, blockingWriteTimeoutSeconds int) (errorType ErrorType, err error) {
 	// Check if stopped first
-	i.Lock()
-	defer i.Unlock()
-
 	if i.stopped {
 		return ErrorTypeStreamStopped, ErrStreamStopped
 	}
@@ -77,14 +74,34 @@ func (i *InMemoryStreamImpl) sendCircularBufferWithChannel(entry StreamEntry, ou
 		return ErrorTypeNone, nil
 	default:
 		// Channel is full, remove oldest entry and add new one
-		<-outputsChan        // Remove oldest
-		outputsChan <- entry // Add new one - this should never fail after removing
-		return ErrorTypeNone, nil
+		// Use write lock to protect the two operations below
+		i.Lock()
+		defer i.Unlock()
+		iterations := 0
+		for {
+			iterations++
+			if iterations > 100 {
+				return ErrorTypeUnknown, errors.New("failed to write to circular buffer, buffer is still full after removing oldest entry for 100 iterations")
+			}
+			// However, this is best effort only because other operations are using read lock.
+			<-outputsChan        // Remove oldest
+			select {
+			case outputsChan <- entry:
+				// Successfully wrote to channel
+				return ErrorTypeNone, nil
+			default:
+				// Channel is still full, do it again
+				continue
+			}
+		}
 	}
 }
 
 // sendBlockingQueueWithChannel implements blocking queue behavior - waits for space and returns error on timeout
 func (i *InMemoryStreamImpl) sendBlockingQueueWithChannel(entry StreamEntry, timeoutSeconds int, outputsChan chan StreamEntry) (errorType ErrorType, err error) {
+	i.RLock()
+	defer i.RUnlock()
+
 	select {
 	case outputsChan <- entry:
 		// Successfully wrote to channel
@@ -99,6 +116,9 @@ func (i *InMemoryStreamImpl) sendBlockingQueueWithChannel(entry StreamEntry, tim
 
 // Receive implements InMemoeryStream.
 func (i *InMemoryStreamImpl) Receive(timeoutSeconds int) (output *genapi.ReceiveResponse, errorType ErrorType, err error) {
+	i.RLock()
+	defer i.RUnlock()
+
 	select {
 	case entry := <-i.outputs:
 		// Successfully received an entry
