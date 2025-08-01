@@ -1,6 +1,11 @@
 package engine
 
-import "github.com/iworkflowio/async-output-service/genapi/go"
+import (
+	"time"
+
+	"github.com/google/uuid"
+	genapi "github.com/iworkflowio/async-output-service/genapi/go"
+)
 
 // OutputType is the type of the output data
 // a shortcut for the output data type
@@ -8,16 +13,22 @@ type OutputType = map[string]interface{}
 
 type MatchingEngine interface {
 	Start() error
-	Send(genapi.SendRequest) (error)
+	Send(genapi.SendRequest) error
 	Receive(ReceiveRequest) (resp *genapi.ReceiveResponse, isTimeout bool, err error)
 	Stop() error
 }
 
+type Stream interface {
+	Send(output OutputType, outputUuid uuid.UUID, timestamp time.Time) error
+	Receive(timeoutSeconds int) (output *genapi.ReceiveResponse, isTimeout bool, err error)
+	Stop() error
+}
+
 type ReceiveRequest struct {
-	StreamId string
+	StreamId       string
 	TimeoutSeconds int
 
 	// Will be implemented in phase2, currently not used
-	ReadFromDB bool
+	ReadFromDB    bool
 	DbResumeToken string
 }
