@@ -17,6 +17,45 @@ Each decision should include:
 
 ## Decisions
 
+### [Date: 2025-08-01] In-Memory Stream Modes: Added Blocking Queue and Sync Match Capabilities
+
+- **Context**: The original unified send API only supported circular buffer behavior for in-memory streams, which always overwrites the oldest data when the buffer is full. This design works well for high-throughput scenarios where recent data is most important, but creates data loss in scenarios requiring backpressure or guaranteed delivery. Some use cases need the ability to block producers when consumers can't keep up, or require real-time synchronous matching without any buffering.
+
+- **Decision**: Introduce multiple in-memory stream modes controlled by the `blockingWriteTimeoutSeconds` parameter:
+  - **Circular Buffer Mode** (default): Only `inMemoryStreamSize` specified, overwrites oldest data when full
+  - **Blocking Queue Mode**: Both `inMemoryStreamSize` and `blockingWriteTimeoutSeconds` specified, waits for space and returns 424 on timeout
+  - **Sync Match Queue Mode**: `inMemoryStreamSize: 0` + `blockingWriteTimeoutSeconds`, zero-capacity queue requiring immediate consumer availability
+  
+  Key implementation details:
+  - `blockingWriteTimeoutSeconds`: Controls maximum wait time before returning 424 error
+  - When specified, disables circular buffer overwrite behavior
+  - Zero-capacity streams require active consumers for successful writes
+  - Timeout behavior provides backpressure mechanism for flow control
+
+- **Rationale**: 
+  - **Backpressure Support**: Blocking queue mode allows producers to slow down when consumers can't keep up, preventing data loss
+  - **Sync Matching Capability**: Zero-capacity queues enable real-time matching without buffering overhead
+  - **Flexible Trade-offs**: Different modes optimize for different scenarios (throughput vs reliability vs latency)
+  - **Simple Configuration**: Single parameter (`blockingWriteTimeoutSeconds`) controls behavior switch
+  - **Backward Compatibility**: Default behavior remains unchanged (circular buffer)
+  - **Flow Control**: 424 timeout responses provide clear feedback for retry logic and rate limiting
+
+- **Alternatives**: 
+  - **Always Blocking**: Rejected due to performance impact on high-throughput use cases
+  - **Separate APIs**: Rejected to maintain unified send endpoint simplicity
+  - **Complex Configuration**: Rejected in favor of simple boolean-like parameter presence
+  - **Different Error Codes**: Rejected as 424 "Failed Dependency" appropriately indicates blocking timeout
+  - **Infinite Blocking**: Rejected due to potential for hanging requests and resource exhaustion
+
+- **Impact**: 
+  - **Use Case Expansion**: Enables data-loss-sensitive scenarios and real-time sync matching
+  - **Producer Flow Control**: Provides natural backpressure mechanism when consumers fall behind
+  - **API Flexibility**: Single API supports three distinct behavioral patterns
+  - **Performance Options**: Maintains high-throughput circular buffer while adding reliability options
+  - **Client Complexity**: Clients must handle 424 responses and implement retry logic for blocking modes
+  - **System Reliability**: Reduces data loss in scenarios where every output is important
+  - **Resource Management**: Blocking behavior requires careful timeout configuration to prevent resource exhaustion
+
 ### [Date: 2025-08-01] API Unification: Merged send and sendAndStore into Single Send Endpoint
 
 - **Context**: The original API design included separate `send` and `sendAndStore` endpoints with different behaviors: `send` used long polling to wait for matching clients (returning 424 on timeout), while `sendAndStore` immediately persisted outputs without waiting. This created confusion about when to use which endpoint and forced clients to make upfront decisions about storage strategy. Additionally, the long polling behavior on the send side coupled producer performance to consumer availability, creating potential bottlenecks.

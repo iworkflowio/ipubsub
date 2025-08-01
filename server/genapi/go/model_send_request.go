@@ -17,8 +17,11 @@ type SendRequest struct {
 	// Unique identifier for the output stream
 	StreamId string `json:"streamId"`
 
-	// The size of the in-memory stream. Only used when writeToDB is false. Default is 100. Only applicable when the stream is empty.
+	// The size of the in-memory stream. Only used when writeToDB is false. Default is 100. Only applicable when the stream is empty. The stream will be a circular buffer by default, meaning the oldest output will be deleted when the stream is full. But if using blockingWriteTimeoutSeconds, the stream will not delete the oldest output when the stream is full. In certain cases, setting this to zero, and using blockingWriteTimeoutSeconds, will make the stream behave like a sync match queue(no data loss but requires client to retry to wait for the stream to be available to write to).
 	InMemoryStreamSize int32 `json:"inMemoryStreamSize,omitempty"`
+
+	// The timeout in seconds for waiting for the in-memory stream to be available to write to. Using this means the stream is not a circular buffer(not delete the oldest output when the stream is full). It will return 424 error if the stream is full after waiting. Using this with inMemoryStreamSize set to zero will make the stream behave like a sync match queue(no data loss but requires client to retry to wait for the stream to be available to write to).
+	BlockingWriteTimeoutSeconds int32 `json:"blockingWriteTimeoutSeconds,omitempty"`
 
 	// The output data to send as JSON object
 	Output map[string]interface{} `json:"output"`

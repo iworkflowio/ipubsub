@@ -30,7 +30,8 @@ This document describes the design decisions and rationale behind the Async Outp
 ### Send Output (`POST /api/v1/streams/send`)
 
 **Core Behavior**:
-- **Never waits for matching** - immediately stores output and returns
+- **Immediate storage** (default) - stores output and returns immediately
+- **Optional blocking** - can wait for stream space if `blockingWriteTimeoutSeconds` is specified
 - Supports both in-memory and database storage modes
 - Uses `writeToDB` parameter to determine storage strategy
 
@@ -42,19 +43,26 @@ This document describes the design decisions and rationale behind the Async Outp
   "output": {"message": "Processing step 1 completed", "step": 1},
   "writeToDB": false,
   "inMemoryStreamSize": 1000,
+  "blockingWriteTimeoutSeconds": 30,
   "dbTTLSeconds": 3600
 }
 ```
 
 **Storage Mode Selection**:
-- `writeToDB: false` (default): Store in bounded in-memory circular buffer
+- `writeToDB: false` (default): Store in bounded in-memory stream
 - `writeToDB: true`: Persist to database with TTL-based retention
 
+**In-Memory Stream Behavior**:
+- **Circular Buffer Mode** (default): `inMemoryStreamSize` only, overwrites oldest data when full
+- **Blocking Queue Mode**: `blockingWriteTimeoutSeconds` specified, waits for space and returns 424 on timeout
+- **Sync Match Queue**: `inMemoryStreamSize: 0` + `blockingWriteTimeoutSeconds`, provides zero-loss matching
+
 **Memory Management**:
-- `inMemoryStreamSize`: Controls circular buffer size (default: 100)
+- `inMemoryStreamSize`: Controls buffer/queue size (default: 100)
+- `blockingWriteTimeoutSeconds`: Enables blocking behavior instead of circular overwrite
 - Only applies when `writeToDB: false`
 - Only effective when stream is empty (initial creation)
-- **Implementation Details**: See [In-Memory Circular Buffer Storage](system-design.md#46-in-memory-circular-buffer-storage) in the system design document
+- **Implementation Details**: See [In-Memory Storage Systems](system-design.md#46-in-memory-circular-buffer-storage) in the system design document
 
 ### Receive Output (`GET /api/v1/streams/receive`)
 
@@ -127,6 +135,61 @@ dbResumeToken: "abc123def456" (optional)
 - **Send API**: Never times out - always succeeds if request is valid
 - **Receive API**: Returns 424 after `timeoutSeconds` if no output available
 - **Client Strategy**: Clients should retry receive operations on 424 responses
+
+## In-Memory Stream Modes
+
+### 1. Circular Buffer Mode (Default)
+**Configuration**: Only `inMemoryStreamSize` specified
+**Behavior**: Overwrites oldest data when buffer is full
+**Use Case**: High-throughput scenarios where recent data is most important
+
+```bash
+POST /api/v1/streams/send
+{
+  "streamId": "metrics-stream",
+  "outputUuid": "metric-001",
+  "output": {"cpu": 75.2, "timestamp": "2024-01-01T10:00:00Z"},
+  "inMemoryStreamSize": 1000,
+  "writeToDB": false
+}
+# Returns 200 immediately, overwrites oldest data if buffer full
+```
+
+### 2. Blocking Queue Mode  
+**Configuration**: Both `inMemoryStreamSize` and `blockingWriteTimeoutSeconds` specified
+**Behavior**: Waits for space when buffer is full, returns 424 on timeout
+**Use Case**: Scenarios requiring backpressure to prevent data loss
+
+```bash
+POST /api/v1/streams/send
+{
+  "streamId": "important-events",
+  "outputUuid": "event-001", 
+  "output": {"event": "user_signup", "userId": "123"},
+  "inMemoryStreamSize": 100,
+  "blockingWriteTimeoutSeconds": 30,
+  "writeToDB": false
+}
+# Waits up to 30 seconds for buffer space, returns 424 if still full
+```
+
+### 3. Sync Match Queue Mode
+**Configuration**: `inMemoryStreamSize: 0` + `blockingWriteTimeoutSeconds`
+**Behavior**: Zero-capacity queue, requires immediate consumer availability
+**Use Case**: Real-time sync matching with guaranteed no data loss
+
+```bash
+POST /api/v1/streams/send
+{
+  "streamId": "realtime-chat",
+  "outputUuid": "msg-001",
+  "output": {"message": "Hello!", "sender": "user123"},
+  "inMemoryStreamSize": 0,
+  "blockingWriteTimeoutSeconds": 10,
+  "writeToDB": false
+}
+# Only succeeds if consumer is actively waiting, returns 424 otherwise
+```
 
 ## Use Case Examples
 
