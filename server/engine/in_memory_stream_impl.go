@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"errors"
 	"sync"
 	"time"
@@ -78,15 +77,9 @@ func (i *InMemoryStreamImpl) sendCircularBufferWithChannel(entry StreamEntry, ou
 		return ErrorTypeNone, nil
 	default:
 		// Channel is full, remove oldest entry and add new one
-		entry := <-outputsChan
-		// Removed oldest entry, now try to add new one
-		select {
-		case outputsChan <- entry:
-			return ErrorTypeNone, nil
-		default:
-			// Still full, that's impossible, must be a bug.
-			return ErrorTypeUnknown, errors.New("failed to write to circular buffer, buffer is still full after removing oldest entry")
-		}
+		<-outputsChan        // Remove oldest
+		outputsChan <- entry // Add new one - this should never fail after removing
+		return ErrorTypeNone, nil
 	}
 }
 
@@ -137,10 +130,11 @@ func (i *InMemoryStreamImpl) Stop() error {
 	defer i.Unlock()
 
 	if i.stopped {
-		return nil // Already stopped
+		return nil
 	}
 
 	i.stopped = true
+	close(i.stopCh) // 🔧 ADD THIS - close the channel to unblock waiting operations
 	close(i.outputs)
 	return nil
 }

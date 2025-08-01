@@ -18,13 +18,13 @@ func TestBasicSendReceive(t *testing.T) {
 	uid := uuid.New()
 	timestamp := time.Now()
 
-	isTimeout, err := stream.Send(output, uid, timestamp, 0) // circular buffer mode
+	errorType, err := stream.Send(output, uid, timestamp, 0) // circular buffer mode
 	require.NoError(t, err)
-	assert.False(t, isTimeout)
+	assert.Equal(t, ErrorTypeNone, errorType)
 
-	resp, isTimeout, err := stream.Receive(1)
+	resp, errorType, err := stream.Receive(1)
 	require.NoError(t, err)
-	assert.False(t, isTimeout)
+	assert.Equal(t, ErrorTypeNone, errorType)
 	assert.Equal(t, uid.String(), resp.OutputUuid)
 	assert.Equal(t, output, resp.Output)
 }
@@ -34,17 +34,17 @@ func TestBlockingMode(t *testing.T) {
 	defer stream.Stop()
 
 	// Fill the buffer
-	isTimeout, err := stream.Send(OutputType{"message": "fill"}, uuid.New(), time.Now(), 5)
+	errorType, err := stream.Send(OutputType{"message": "fill"}, uuid.New(), time.Now(), 5)
 	require.NoError(t, err)
-	assert.False(t, isTimeout)
+	assert.Equal(t, ErrorTypeNone, errorType)
 
 	// This should timeout
 	start := time.Now()
-	isTimeout, err = stream.Send(OutputType{"message": "should timeout"}, uuid.New(), time.Now(), 1)
+	errorType, err = stream.Send(OutputType{"message": "should timeout"}, uuid.New(), time.Now(), 1)
 	duration := time.Since(start)
 
 	require.Error(t, err)
-	assert.True(t, isTimeout)
+	assert.Equal(t, ErrorTypeWaitingTimeout, errorType)
 	assert.Contains(t, err.Error(), "timeout waiting for stream space")
 	assert.GreaterOrEqual(t, duration, 900*time.Millisecond)
 }
