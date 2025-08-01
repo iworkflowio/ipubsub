@@ -216,7 +216,17 @@ func (sm *MembershipImpl) refreshMembership() {
 // Stop gracefully shuts down the membership service
 func (sm *MembershipImpl) Stop() error {
 	sm.logger.Info("Stopping membership service...")
-	sm.memberlist.Leave(1 * time.Second)
+
+	var errLeave, errShutdown error
+	// First leave the cluster
+	if sm.memberlist != nil {
+		errLeave = sm.memberlist.Leave(10 * time.Second)
+		if errLeave != nil {
+			sm.logger.Warn("Error leaving cluster", tag.Error(errLeave))
+		}
+	}
+
+	// Signal shutdown to refresh goroutine
 	close(sm.shutdownCh)
 
 	// Wait for refresh goroutine to complete
@@ -225,6 +235,18 @@ func (sm *MembershipImpl) Stop() error {
 		// Goroutine completed
 	case <-time.After(5 * time.Second):
 		sm.logger.Warn("Timeout waiting for refresh goroutine to stop")
+	}
+
+	// Shutdown the memberlist to free resources and ports
+	if sm.memberlist != nil {
+		errShutdown = sm.memberlist.Shutdown()
+		if errShutdown != nil {
+			sm.logger.Warn("Error shutting down memberlist", tag.Error(errShutdown))
+		}
+	}
+
+	if errLeave != nil || errShutdown != nil {
+		return fmt.Errorf("error leaving cluster: %w, error shutting down memberlist: %w", errLeave, errShutdown)
 	}
 
 	sm.logger.Info("Membership service stopped")
