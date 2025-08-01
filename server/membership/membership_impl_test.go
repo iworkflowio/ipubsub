@@ -407,6 +407,99 @@ func TestNilConfig(t *testing.T) {
 	assert.Contains(t, err.Error(), "config cannot be nil")
 }
 
+func TestNodeSuddenFailureDetection(t *testing.T) {
+	// This test simulates a sudden node failure (crash/network partition) using forceShutdownForTest
+	// and verifies that remaining nodes detect the failure after the memberlist failure detection timeout.
+	// This is different from TestNodeLeaveCluster which tests graceful departure.
+
+	// Clean up any previous test state
+	setLocalOverrideForBootstrapNodesForTests([]string{})
+	defer setLocalOverrideForBootstrapNodesForTests([]string{})
+
+	// Start first node
+	cfg1 := createTestConfig("node1", 7900, 8050)
+	logger1 := createTestLogger()
+	membership1, err := NewNodeMembershipImpl(cfg1, logger1)
+	require.NoError(t, err)
+	err = membership1.Start()
+	require.NoError(t, err)
+	defer func() {
+		err := membership1.Stop()
+		assert.NoError(t, err)
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Start second node that joins the first
+	cfg2 := createTestConfig("node2", 7901, 8051)
+	cfg2.ClusterConfig.StaticBootstrapNodeAddrPorts = []string{"127.0.0.1:7900"}
+	logger2 := createTestLogger()
+	membership2, err := NewNodeMembershipImpl(cfg2, logger2)
+	require.NoError(t, err)
+	err = membership2.Start()
+	require.NoError(t, err)
+
+	// Wait for cluster formation
+	waitForClusterSize(t, membership1, 2, testTimeout)
+	waitForClusterSize(t, membership2, 2, testTimeout)
+
+	// Verify both nodes see each other initially
+	nodes1, err := membership1.GetAllNodes()
+	require.NoError(t, err)
+	assert.Len(t, nodes1, 2)
+	assert.True(t, hasNodeWithName(nodes1, "node1", true))
+	assert.True(t, hasNodeWithName(nodes1, "node2", false))
+
+	nodes2, err := membership2.GetAllNodes()
+	require.NoError(t, err)
+	assert.Len(t, nodes2, 2)
+	assert.True(t, hasNodeWithName(nodes2, "node1", false))
+	assert.True(t, hasNodeWithName(nodes2, "node2", true))
+
+	// Simulate sudden failure of node2 by force shutting down its memberlist
+	// This simulates a crash or network partition where the node doesn't gracefully leave
+	impl2, ok := membership2.(*MembershipImpl)
+	require.True(t, ok, "membership2 should be of type *MembershipImpl")
+
+	err = impl2.forceShutdownForTest()
+	require.NoError(t, err)
+
+	// Wait for node1 to detect the failure
+	// Memberlist typically detects failures within a few seconds (default probe interval + timeout)
+	// We'll wait up to 15 seconds for failure detection
+	failureDetectionTimeout := 15 * time.Second
+
+	t.Logf("Waiting up to %v for node1 to detect node2 failure...", failureDetectionTimeout)
+
+	deadline := time.Now().Add(failureDetectionTimeout)
+	detected := false
+
+	for time.Now().Before(deadline) {
+		nodes, err := membership1.GetAllNodes()
+		require.NoError(t, err)
+
+		// Check if node1 only sees itself (failure detected)
+		if len(nodes) == 1 && hasNodeWithName(nodes, "node1", true) {
+			detected = true
+			t.Logf("Failure detected after %v", time.Since(deadline.Add(-failureDetectionTimeout)))
+			break
+		}
+
+		// Check every 500ms
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Verify that node1 eventually detected the failure
+	assert.True(t, detected, "node1 should have detected node2 failure within %v", failureDetectionTimeout)
+
+	// Final verification - node1 should only see itself
+	finalNodes, err := membership1.GetAllNodes()
+	require.NoError(t, err)
+	assert.Len(t, finalNodes, 1, "node1 should only see itself after detecting node2 failure")
+	assert.True(t, hasNodeWithName(finalNodes, "node1", true))
+	assert.False(t, hasNodeWithName(finalNodes, "node2", false), "node1 should no longer see node2")
+}
+
 // Helper functions
 
 func createTestConfig(nodeName string, gossipPort, httpPort int) *config.Config {

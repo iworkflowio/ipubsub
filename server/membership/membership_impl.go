@@ -34,7 +34,7 @@ func NewNodeMembershipImpl(config *config.Config, logger log.Logger) (NodeMember
 	bootstrapNodeProvider := NewBootstrapNodeProvider(config)
 
 	// Create memberlist configuration
-	mlConfig := memberlist.DefaultWANConfig()
+	mlConfig := memberlist.DefaultLANConfig()
 	mlConfig.Name = config.NodeConfig.NodeName
 	var err error
 	mlConfig.BindAddr, mlConfig.BindPort, err = config.NodeConfig.GetGossipBindAddrPort()
@@ -251,6 +251,10 @@ func (sm *MembershipImpl) Stop() error {
 
 	sm.logger.Info("Membership service stopped")
 	return nil
+}
+
+func (sm *MembershipImpl) forceShutdownForTest() error {
+	return sm.memberlist.Shutdown()
 }
 
 // GetAllNodes returns all known nodes in the cluster
