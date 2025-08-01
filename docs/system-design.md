@@ -224,6 +224,136 @@ type PollContext struct {
 - **Connection Pooling**: Reuse HTTP connections for forwarded requests
 - **Graceful Shutdown**: Drain active polls during node shutdown
 
+### 4.6 In-Memory Circular Buffer Storage
+
+#### **Overview**
+When `writeToDB: false`, the service uses circular buffers to store outputs in memory. A circular buffer is a fixed-size data structure that efficiently handles continuous data streams by overwriting the oldest entries when the buffer is full.
+
+#### **Buffer Structure**
+```go
+type CircularBuffer struct {
+    data     []OutputEntry
+    head     int           // Write position
+    tail     int           // Read position  
+    size     int           // Buffer capacity
+    count    int           // Current entries
+    mu       sync.RWMutex  // Thread safety
+}
+
+type OutputEntry struct {
+    OutputUUID string
+    Output     interface{}
+    Timestamp  time.Time
+}
+```
+
+#### **Core Operations**
+
+**Write Operation (O(1))**:
+```go
+func (cb *CircularBuffer) Write(entry OutputEntry) {
+    cb.mu.Lock()
+    defer cb.mu.Unlock()
+    
+    cb.data[cb.head] = entry
+    cb.head = (cb.head + 1) % cb.size
+    
+    if cb.count < cb.size {
+        cb.count++
+    } else {
+        // Buffer full, move tail (overwrite oldest)
+        cb.tail = (cb.tail + 1) % cb.size
+    }
+}
+```
+
+**Read Operation (O(1))**:
+```go
+func (cb *CircularBuffer) Read() (OutputEntry, bool) {
+    cb.mu.RLock()
+    defer cb.mu.RUnlock()
+    
+    if cb.count == 0 {
+        return OutputEntry{}, false
+    }
+    
+    entry := cb.data[cb.tail]
+    cb.tail = (cb.tail + 1) % cb.size
+    cb.count--
+    
+    return entry, true
+}
+```
+
+#### **Buffer State Management**
+
+**Example - Buffer Size 4**:
+```
+Initial State (empty):
+[_, _, _, _]
+ ^head/tail
+
+After sending 3 outputs:
+[A, B, C, _]
+          ^head
+ ^tail
+
+After sending 2 more outputs (buffer full + 1 overwrite):
+[E, B, C, D]  
+   ^head
+    ^tail (B is now the oldest available)
+
+Consumer receives: B, C, D, E (in order)
+```
+
+#### **Memory Management Properties**
+
+**Advantages**:
+- **Memory Bounded**: Fixed memory usage regardless of throughput
+- **High Performance**: O(1) write and read operations
+- **Cache Friendly**: Sequential memory access patterns
+- **Overwrite Semantics**: Automatically handles memory pressure
+
+**Trade-offs**:
+- **Data Loss**: Old outputs are lost when buffer overflows
+- **No Persistence**: Data lost on service restart
+- **Size Immutability**: Buffer size only configurable at stream creation
+
+#### **Multi-Consumer Support**
+```go
+type StreamBuffer struct {
+    buffer    *CircularBuffer
+    consumers map[string]*ConsumerState
+    mu        sync.RWMutex
+}
+
+type ConsumerState struct {
+    LastRead  int       // Last read position
+    Timestamp time.Time // Last read time
+}
+```
+
+**Independent Consumer Positions**:
+- Each consumer maintains separate read position
+- Fast consumers don't block slow consumers
+- Slow consumers may miss overwritten data
+- No explicit notification of data loss
+
+#### **Buffer Sizing Guidelines**
+
+| Use Case | Recommended Size | Rationale |
+|----------|------------------|-----------|
+| Real-time UI Updates | 20-50 | Small history window, immediate consumption |
+| Progress Monitoring | 100-500 | Medium buffering for occasional disconnections |
+| High-throughput Events | 1000-10000 | Large buffer for batch processing scenarios |
+| Debug/Development | 10000+ | Extended history for troubleshooting |
+
+#### **Performance Characteristics**
+- **Write Throughput**: ~10M ops/sec (single-threaded)
+- **Memory Usage**: `sizeof(OutputEntry) × buffer_size`
+- **Latency**: Sub-microsecond for cache-resident data
+- **Concurrency**: Read-write locks for thread safety
+
 ## 5. Phase Implementation Strategy
 
 ### 5.1 Phase 1: Real-time In-Memory Matching

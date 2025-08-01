@@ -1,96 +1,116 @@
-# Timer Service API Design
+# Async Output Service API Design
 
 ## Overview
 
-This document describes the design decisions and rationale behind the Distributed Durable Timer Service REST API. The API provides a minimal, focused interface for managing one-time timers with HTTP webhook callbacks.
+This document describes the design decisions and rationale behind the Async Output Service REST API. The API provides a stream-based matching system for real-time delivery of asynchronous outputs to waiting clients, with support for both in-memory and persistent storage.
 
 ## Core Design Principles
 
-### 1. Minimal API Surface
-- **Decision**: Only 4 endpoints for core CRUD operations
-- **Rationale**: Strict adherence to requirements prevents scope creep and maintains focus on essential timer functionality
-- **Endpoints**:
-  - `POST /timers/create` - Create timer
-  - `POST /timers/get` - Get timer details  
-  - `POST /timers/update` - Update timer
-  - `POST /timers/delete` - Delete timer
+### 1. Stream-Based Matching
+- **Decision**: Use `streamId` as the primary identifier for connecting output producers with consumers
+- **Rationale**: Enables many-to-many relationships where multiple producers can send to the same stream and multiple consumers can receive from it
+- **Implementation**: All operations are organized around stream identifiers rather than individual message IDs
 
-### 2. Namespace-Based Scalability
-- **Decision**: All timers belong to a `namespace` which is required in all request bodies
-- **Rationale**: Timer IDs are unique within each namespace. Also, this enables horizontal scaling through sharding with each namespace configured with number of shards.
+### 2. Dual Storage Strategy
+- **Decision**: Support both in-memory streams and persistent database storage within the same send API
+- **Rationale**: Provides flexibility for different use cases - real-time ephemeral data vs. durable persistent data
 - **Implementation**:
-  - Request body field: `namespace` in all operations
-  - Required in all API requests
-  - Must be one of the configured namespaces in the system
-  - Internal implementation details: each namespace is configured with a specific number of shards
+  - In-memory: Fast, low-latency, bounded-size circular buffers
+  - Database: Persistent, TTL-based retention, resume token support
 
+### 3. Asymmetric Polling Model  
+- **Decision**: Send operations are non-blocking, receive operations use long polling
+- **Rationale**: Producers shouldn't be blocked by consumer availability, but consumers benefit from real-time delivery
+- **Implementation**:
+  - Send API: Immediate return after storing output
+  - Receive API: Long polling with configurable timeout
 
+## API Endpoints
 
-## Key API Components
+### Send Output (`POST /api/v1/streams/send`)
 
-### Timer Creation (`POST /timers/create`)
+**Core Behavior**:
+- **Never waits for matching** - immediately stores output and returns
+- Supports both in-memory and database storage modes
+- Uses `writeToDB` parameter to determine storage strategy
 
-**Response Strategy**:
-- Returns `200` for both new timer creation and existing timer (deduplication)
-- Simplifies client logic - clients don't need to distinguish between creation and existing
-
-**Required Fields**:
+**Request Schema**:
 ```json
 {
-  "namespace": "example-namespace",
-  "id": "unique-timer-id",
-  "executeAt": "2024-12-20T15:30:00Z",
-  "callbackUrl": "https://api.example.com/webhook"
+  "outputUuid": "123e4567-e89b-12d3-a456-426614174000",
+  "streamId": "ai-agent-123", 
+  "output": {"message": "Processing step 1 completed", "step": 1},
+  "writeToDB": false,
+  "inMemoryStreamSize": 1000,
+  "dbTTLSeconds": 3600
 }
 ```
 
-**Optional Fields**:
-- `payload` - Custom JSON data included in callback
-- `retryPolicy` - Configurable retry behavior
-- `callbackTimeout` - HTTP request timeout (default: "30s")
+**Storage Mode Selection**:
+- `writeToDB: false` (default): Store in bounded in-memory circular buffer
+- `writeToDB: true`: Persist to database with TTL-based retention
 
+**Memory Management**:
+- `inMemoryStreamSize`: Controls circular buffer size (default: 100)
+- Only applies when `writeToDB: false`
+- Only effective when stream is empty (initial creation)
+- **Implementation Details**: See [In-Memory Circular Buffer Storage](system-design.md#46-in-memory-circular-buffer-storage) in the system design document
 
-### Callback Response Protocol
+### Receive Output (`GET /api/v1/streams/receive`)
 
-Return 4xx means invalid timer and no retry.
-Return 200 with ok == true means success and no retry.
-Otherwise will retry, if retryPolicy is provided on timer creation.
+**Core Behavior**:
+- Uses long polling to wait for available output
+- Returns HTTP 424 on timeout (no output available)
+- Supports both real-time and historical playback modes
 
-**CallbackResponse Schema**:
-```json
-{
-  "ok": true,  // Required: indicates success/failure
-  "nextExecuteAt": "2024-12-21T15:30:00Z"  // Optional: reschedule timer
-}
+**Query Parameters**:
+```
+streamId: "ai-agent-123" (required)
+timeoutSeconds: 60 (optional, default: 30)
+readFromDB: true (optional, default: false)  
+dbResumeToken: "abc123def456" (optional)
 ```
 
-**Success Semantics**:
-- HTTP 200 + `{"ok": true}` = Success, timer completes
-- HTTP 200 + `{"ok": false, "nextExecuteAt": "..."}` = Reschedule timer
-- HTTP 4xx = In valid timer, not retry
-- Any other HTTP code = Failure, retry according to policy
+**Reading Modes**:
+- `readFromDB: false`: Real-time consumption from in-memory streams
+- `readFromDB: true`: Historical playback from persistent storage
+- `dbResumeToken`: Enables replay from specific position
 
-
-
-### Retry Policy Configuration
-
-**Enhanced Retry Control**:
+**Response Schema**:
 ```json
 {
-  "maxRetries": 3,
-  "maxRetryAttemptsDuration": "24h",
-  "initialInterval": "30s", 
-  "backoffMultiplier": 2.0,
-  "maxInterval": "10m"
-}
-```
+  "outputUuid": "123e4567-e89b-12d3-a456-426614174000",
+  "output": {"message": "Processing step 1 completed", "step": 1},
+  "timestamp": "2024-01-01T10:00:00Z",
+  "dbResumeToken": "def456ghi789"
+  }
+  ```
 
-**Key Features**:
-- `maxRetryAttemptsDuration` - Limits total retry window (prevents infinite retries)
-- Exponential backoff with configurable multiplier
-- Per-timer retry policy customization
+## Key Design Decisions
 
+### 1. Unified Send API
+- **Previous**: Separate `send` (with matching) and `sendAndStore` APIs
+- **Current**: Single `send` API with storage mode parameter
+- **Rationale**: Simplifies client code and reduces API surface area
+- **Benefit**: Producers can dynamically choose storage strategy per message
 
+### 2. No Blocking on Send
+- **Decision**: Send operations never wait for consumer availability
+- **Rationale**: Decouples producer performance from consumer readiness
+- **Implementation**: Output is always stored (memory or DB) regardless of consumer state
+- **Benefit**: High producer throughput and predictable latency
+
+### 3. Object-Only Output Type
+- **Decision**: Support only JSON objects for output data
+- **Rationale**: Simplifies serialization/deserialization and provides structured data
+- **Implementation**: `output` field is always `type: object`
+- **Benefit**: Consistent data handling across all operations
+
+### 4. TTL-Based Retention
+- **Decision**: Use `dbTTLSeconds` for automatic cleanup of persistent data
+- **Rationale**: Prevents unbounded storage growth and provides predictable data lifecycle
+- **Implementation**: Database automatically removes expired outputs
+- **Default**: 24 hours (86400 seconds)
 
 ## Error Handling Strategy
 
@@ -98,72 +118,64 @@ Otherwise will retry, if retryPolicy is provided on timer creation.
 
 | Code | Usage | Description |
 |------|--------|-------------|
-| 200 | Success | Timer created/updated/retrieved successfully |
-| 204 | Success | Timer deleted successfully |
+| 200 | Success | Output sent/received successfully |
 | 400 | Client Error | Invalid request parameters |
-| 404 | Client Error | Timer not found |
+| 424 | Failed Dependency | No output available (receive timeout) |
 | 500 | Server Error | Internal server error |
 
+### Timeout Behavior
+- **Send API**: Never times out - always succeeds if request is valid
+- **Receive API**: Returns 424 after `timeoutSeconds` if no output available
+- **Client Strategy**: Clients should retry receive operations on 424 responses
 
+## Use Case Examples
 
-
-
-
-
-
-
-
-## API Examples
-
-### Create Timer
+### Real-Time AI Agent Progress
 ```bash
-POST /api/v1/timers/create
+# Producer sends progress updates
+POST /api/v1/streams/send
 {
-  "namespace": "example-namespace",
-  "id": "user-reminder-123",
-  "executeAt": "2024-12-20T15:30:00Z",
-  "callbackUrl": "https://app.example.com/webhooks/timer",
-  "payload": {
-    "userId": "user123",
-    "action": "send_reminder"
-  },
-  "retryPolicy": {
-    "maxRetries": 3,
-    "maxRetryAttemptsDuration": "1h"
-  }
+  "outputUuid": "step-1-uuid",
+  "streamId": "ai-agent-session-123",
+  "output": {"step": 1, "status": "processing", "progress": 25},
+  "writeToDB": false,
+  "inMemoryStreamSize": 50
 }
+
+# Consumer receives real-time updates
+GET /api/v1/streams/receive?streamId=ai-agent-session-123&timeoutSeconds=30
 ```
 
-### Get Timer
+### Durable Task Results
 ```bash
-POST /api/v1/timers/get
+# Producer stores important results
+POST /api/v1/streams/send  
 {
-  "namespace": "example-namespace",
-  "timerId": "user-reminder-123"
+  "outputUuid": "result-uuid",
+  "streamId": "batch-job-456",
+  "output": {"status": "completed", "resultUrl": "s3://..."},
+  "writeToDB": true,
+  "dbTTLSeconds": 86400
 }
+
+# Consumer can replay from any position
+GET /api/v1/streams/receive?streamId=batch-job-456&readFromDB=true&dbResumeToken=abc123
 ```
 
-### Update Timer
+### High-Throughput Event Streaming
 ```bash
-POST /api/v1/timers/update
+# Multiple producers send to same stream
+POST /api/v1/streams/send
 {
-  "namespace": "example-namespace",
-  "timerId": "user-reminder-123",
-  "executeAt": "2024-12-20T16:00:00Z",
-  "payload": {
-    "userId": "user123", 
-    "action": "send_urgent_reminder"
-  }
+  "outputUuid": "event-1-uuid", 
+  "streamId": "metrics-stream",
+  "output": {"metric": "cpu_usage", "value": 75.2, "timestamp": "2024-01-01T10:00:00Z"},
+  "writeToDB": false,
+  "inMemoryStreamSize": 10000
 }
-```
 
-### Delete Timer
-```bash
-POST /api/v1/timers/delete
-{
-  "namespace": "example-namespace",
-  "timerId": "user-reminder-123"
-}
+# Multiple consumers receive from same stream
+GET /api/v1/streams/receive?streamId=metrics-stream&timeoutSeconds=5
 ```
 
 ---
