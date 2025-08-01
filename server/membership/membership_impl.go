@@ -13,15 +13,18 @@ import (
 
 // MembershipImpl implements NodeMembership using HashiCorp's memberlist
 type MembershipImpl struct {
+	logger                log.Logger
 	config                *config.Config
 	memberlist            *memberlist.Memberlist
-	nodes                 []NodeInfo
-	nodeNameMap           map[string]bool
-	shutdownCh            chan struct{}
 	bootstrapNodeProvider *BootstrapNodeProvider
+
+	nodes       []NodeInfo
+	nodeNameMap map[string]bool
+	version     int64 // version of the cluster, incremented when the cluster is updated
 	// protect the nodes list and node name map
 	sync.RWMutex
-	logger      log.Logger
+
+	shutdownCh  chan struct{}
 	refreshDone chan struct{} // Add channel to track refresh goroutine completion
 }
 
@@ -55,6 +58,7 @@ func NewNodeMembershipImpl(config *config.Config, logger log.Logger) (NodeMember
 		nodes:                 make([]NodeInfo, 0),
 		logger:                logger,
 		refreshDone:           make(chan struct{}),
+		version:               0,
 	}
 
 	mlConfig.Events = sm
@@ -67,6 +71,12 @@ func NewNodeMembershipImpl(config *config.Config, logger log.Logger) (NodeMember
 
 	sm.memberlist = ml
 	return sm, nil
+}
+
+func (sm *MembershipImpl) GetVersion() int64 {
+	sm.RLock()
+	defer sm.RUnlock()
+	return sm.version
 }
 
 // Start initializes and starts joining the cluster
@@ -165,14 +175,13 @@ func (sm *MembershipImpl) updateNodes() {
 		hasChanged = true
 	}
 	if hasChanged {
+		sm.version++
+		sm.nodes = newNodesList
+		sm.nodeNameMap = newNodeNameMap
 		sm.logger.Info("INFO: update nodes list from", tag.Value(oldNodeNameMap), tag.Value(newNodeNameMap))
 	} else {
 		sm.logger.Info("INFO: no change in nodes list", tag.Value(newNodeNameMap))
 	}
-
-	sm.nodes = newNodesList
-	sm.nodeNameMap = newNodeNameMap
-
 }
 
 func (sm *MembershipImpl) refreshMembership() {
@@ -274,6 +283,7 @@ func (sm *MembershipImpl) NotifyJoin(node *memberlist.Node) {
 		Port:   int(node.Port),
 	})
 	sm.nodeNameMap[node.Name] = true
+	sm.version++
 	sm.logger.Info("Node joined the cluster", tag.Value(node.Name))
 }
 
@@ -290,6 +300,7 @@ func (sm *MembershipImpl) NotifyLeave(node *memberlist.Node) {
 	}
 	sm.nodes = newNodes
 	delete(sm.nodeNameMap, node.Name)
+	sm.version++
 	sm.logger.Info("Node left the cluster", tag.Value(node.Name))
 }
 
