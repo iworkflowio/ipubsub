@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	genapi "github.com/iworkflowio/async-output-service/genapi/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +30,7 @@ func TestInMemoryStreamImpl_CircularBufferMode(t *testing.T) {
 		resp, errorType, err := stream.Receive(1)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
-		assert.Equal(t, uuid1.String(), resp.OutputUuid)
+		assert.Equal(t, uuid1, resp.OutputUuid)
 		assert.Equal(t, output1, resp.Output)
 		assert.Equal(t, timestamp1, resp.Timestamp)
 	})
@@ -121,7 +120,7 @@ func TestInMemoryStreamImpl_BlockingQueueMode(t *testing.T) {
 		resp, errorType, err := stream.Receive(1)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
-		assert.Equal(t, uuid1.String(), resp.OutputUuid)
+		assert.Equal(t, uuid1.String(), resp.OutputUuid.String())
 		assert.Equal(t, output1, resp.Output)
 	})
 
@@ -209,7 +208,7 @@ func TestInMemoryStreamImpl_SyncMatchQueueMode(t *testing.T) {
 	t.Run("SyncMatchWithActiveConsumer", func(t *testing.T) {
 		// Now that locking is improved, let's test real sync matching
 		receiveResult := make(chan struct {
-			resp      *genapi.ReceiveResponse
+			resp      *InternalReceiveResponse
 			errorType ErrorType
 			err       error
 		}, 1)
@@ -218,7 +217,7 @@ func TestInMemoryStreamImpl_SyncMatchQueueMode(t *testing.T) {
 		go func() {
 			resp, errorType, err := stream.Receive(5) // 5 second timeout
 			receiveResult <- struct {
-				resp      *genapi.ReceiveResponse
+				resp      *InternalReceiveResponse
 				errorType ErrorType
 				err       error
 			}{resp, errorType, err}
@@ -245,7 +244,7 @@ func TestInMemoryStreamImpl_SyncMatchQueueMode(t *testing.T) {
 		case result := <-receiveResult:
 			require.NoError(t, result.err)
 			assert.Equal(t, ErrorTypeNone, result.errorType)
-			assert.Equal(t, uuid1.String(), result.resp.OutputUuid)
+			assert.Equal(t, uuid1, result.resp.OutputUuid)
 			assert.Equal(t, output, result.resp.Output)
 		case <-time.After(3 * time.Second):
 			t.Fatal("Consumer should have received the message")
@@ -302,7 +301,7 @@ func TestInMemoryStreamImpl_Stop(t *testing.T) {
 
 		// Test blocking receive on empty channel
 		receiveResult := make(chan struct {
-			resp      *genapi.ReceiveResponse
+			resp      *InternalReceiveResponse
 			errorType ErrorType
 			err       error
 		}, 1)
@@ -313,7 +312,7 @@ func TestInMemoryStreamImpl_Stop(t *testing.T) {
 		go func() {
 			resp, errorType, err := testStream.Receive(10)
 			receiveResult <- struct {
-				resp      *genapi.ReceiveResponse
+				resp      *InternalReceiveResponse
 				errorType ErrorType
 				err       error
 			}{resp, errorType, err}
@@ -358,7 +357,7 @@ func TestInMemoryStreamImpl_EdgeCases(t *testing.T) {
 		// Zero capacity circular buffer should return error
 		errorType, err := stream.Send(OutputType{"message": "test"}, uuid.New(), time.Now(), 0)
 		assert.Error(t, err)
-		assert.Equal(t, ErrorTypeUnknown, errorType)
+		assert.Equal(t, ErrorTypeInvalidRequest, errorType)
 		assert.Contains(t, err.Error(), "zero capacity circular buffer is not allowed")
 	})
 
@@ -665,8 +664,8 @@ func TestInMemoryStreamImpl_ComprehensiveEdgeCases(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, ErrorTypeNone, errorType)
 
-			receivedUUIDs[resp.OutputUuid] = true
-			assert.True(t, uuids[resp.OutputUuid], "Received UUID should be one that was sent")
+			receivedUUIDs[resp.OutputUuid.String()] = true
+			assert.True(t, uuids[resp.OutputUuid.String()], "Received UUID should be one that was sent")
 		}
 
 		assert.Equal(t, 50, len(receivedUUIDs))

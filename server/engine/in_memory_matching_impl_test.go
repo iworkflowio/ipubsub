@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	genapi "github.com/iworkflowio/async-output-service/genapi/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -51,7 +50,7 @@ func TestInMemoryMatchingEngine_Send(t *testing.T) {
 	defer engine.Stop()
 
 	t.Run("SendToNewStream", func(t *testing.T) {
-		req := genapi.SendRequest{
+		req := InternalSendRequest{
 			StreamId:                    "test-stream-1",
 			OutputUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          10,
@@ -59,7 +58,7 @@ func TestInMemoryMatchingEngine_Send(t *testing.T) {
 			Output:                      map[string]interface{}{"message": "hello"},
 		}
 
-		errorType, err := engine.Send(req)
+		errorType, err := engine.Send(&req)
 		assert.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 	})
@@ -68,32 +67,32 @@ func TestInMemoryMatchingEngine_Send(t *testing.T) {
 		streamId := "test-stream-2"
 
 		// First send creates the stream
-		req1 := genapi.SendRequest{
+		req1 := InternalSendRequest{
 			StreamId:                    streamId,
 			OutputUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          10,
 			BlockingWriteTimeoutSeconds: 0,
 			Output:                      map[string]interface{}{"message": "first"},
 		}
-		errorType, err := engine.Send(req1)
+		errorType, err := engine.Send(&req1)
 		assert.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
 		// Second send to same stream
-		req2 := genapi.SendRequest{
+		req2 := InternalSendRequest{
 			StreamId:                    streamId,
 			OutputUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          5, // Should be ignored for existing stream
 			BlockingWriteTimeoutSeconds: 0,
 			Output:                      map[string]interface{}{"message": "second"},
 		}
-		errorType, err = engine.Send(req2)
+		errorType, err = engine.Send(&req2)
 		assert.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 	})
 
 	t.Run("SendWithDefaultStreamSize", func(t *testing.T) {
-		req := genapi.SendRequest{
+		req := &InternalSendRequest{
 			StreamId:                    "test-stream-default",
 			OutputUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          0, // Should use default
@@ -107,7 +106,7 @@ func TestInMemoryMatchingEngine_Send(t *testing.T) {
 	})
 
 	t.Run("SendWithInvalidUUID", func(t *testing.T) {
-		req := genapi.SendRequest{
+		req := &InternalSendRequest{
 			StreamId:                    "test-stream-invalid",
 			OutputUuid:                  "invalid-uuid",
 			InMemoryStreamSize:          10,
@@ -125,7 +124,7 @@ func TestInMemoryMatchingEngine_Send(t *testing.T) {
 		stoppedEngine.Start()
 		stoppedEngine.Stop()
 
-		req := genapi.SendRequest{
+		req := &InternalSendRequest{
 			StreamId:                    "test-stream-stopped",
 			OutputUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          10,
@@ -149,7 +148,7 @@ func TestInMemoryMatchingEngine_Receive(t *testing.T) {
 		streamId := "test-stream-receive-1"
 
 		// First, send data to create stream
-		sendReq := genapi.SendRequest{
+		sendReq := &InternalSendRequest{
 			StreamId:                    streamId,
 			OutputUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          10,
@@ -161,11 +160,11 @@ func TestInMemoryMatchingEngine_Receive(t *testing.T) {
 		require.Equal(t, ErrorTypeNone, errorType)
 
 		// Then receive from the stream
-		receiveReq := ReceiveRequest{
+		receiveReq := InternalReceiveRequest{
 			StreamId:       streamId,
 			TimeoutSeconds: 5,
 		}
-		resp, errorType, err := engine.Receive(receiveReq)
+		resp, errorType, err := engine.Receive(&receiveReq)
 		assert.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 		assert.NotNil(t, resp)
@@ -173,13 +172,13 @@ func TestInMemoryMatchingEngine_Receive(t *testing.T) {
 	})
 
 	t.Run("ReceiveTimeoutFromNonExistentStream", func(t *testing.T) {
-		receiveReq := ReceiveRequest{
+		receiveReq := InternalReceiveRequest{
 			StreamId:       "non-existent-stream",
 			TimeoutSeconds: 1, // Short timeout for test speed
 		}
 
 		start := time.Now()
-		resp, errorType, err := engine.Receive(receiveReq)
+		resp, errorType, err := engine.Receive(&receiveReq)
 		duration := time.Since(start)
 
 		assert.NoError(t, err)
@@ -194,12 +193,12 @@ func TestInMemoryMatchingEngine_Receive(t *testing.T) {
 		stoppedEngine.Start()
 		stoppedEngine.Stop()
 
-		receiveReq := ReceiveRequest{
+		receiveReq := InternalReceiveRequest{
 			StreamId:       "test-stream",
 			TimeoutSeconds: 5,
 		}
 
-		resp, errorType, err := stoppedEngine.Receive(receiveReq)
+		resp, errorType, err := stoppedEngine.Receive(&receiveReq)
 		assert.Error(t, err)
 		assert.Equal(t, ErrorTypeStreamStopped, errorType)
 		assert.Nil(t, resp)
@@ -215,24 +214,24 @@ func TestInMemoryMatchingEngine_WaitForStreamCreation(t *testing.T) {
 	t.Run("ReceiveWaitsForSend", func(t *testing.T) {
 		streamId := "test-stream-wait"
 
-		var receiveResp *genapi.ReceiveResponse
+		var receiveResp *InternalReceiveResponse
 		var receiveErrorType ErrorType
 		var receiveErr error
 
 		// Start receiving in a goroutine (this should wait)
 		go func() {
-			receiveReq := ReceiveRequest{
+			receiveReq := InternalReceiveRequest{
 				StreamId:       streamId,
 				TimeoutSeconds: 10,
 			}
-			receiveResp, receiveErrorType, receiveErr = engine.Receive(receiveReq)
+			receiveResp, receiveErrorType, receiveErr = engine.Receive(&receiveReq)
 		}()
 
 		// Wait a bit to ensure receive is waiting
 		time.Sleep(100 * time.Millisecond)
 
 		// Send data (this should wake up the receiver)
-		sendReq := genapi.SendRequest{
+		sendReq := &InternalSendRequest{
 			StreamId:                    streamId,
 			OutputUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          10,
@@ -266,7 +265,7 @@ func TestInMemoryMatchingEngine_MultipleWaiters(t *testing.T) {
 
 		var wg sync.WaitGroup
 		results := make([]struct {
-			resp      *genapi.ReceiveResponse
+			resp      *InternalReceiveResponse
 			errorType ErrorType
 			err       error
 		}, numWaiters)
@@ -276,11 +275,11 @@ func TestInMemoryMatchingEngine_MultipleWaiters(t *testing.T) {
 			wg.Add(1)
 			go func(index int) {
 				defer wg.Done()
-				receiveReq := ReceiveRequest{
+				receiveReq := InternalReceiveRequest{
 					StreamId:       streamId,
 					TimeoutSeconds: 10,
 				}
-				results[index].resp, results[index].errorType, results[index].err = engine.Receive(receiveReq)
+				results[index].resp, results[index].errorType, results[index].err = engine.Receive(&receiveReq)
 			}(i)
 		}
 
@@ -289,7 +288,7 @@ func TestInMemoryMatchingEngine_MultipleWaiters(t *testing.T) {
 
 		// Send multiple messages
 		for i := 0; i < numWaiters; i++ {
-			sendReq := genapi.SendRequest{
+			sendReq := &InternalSendRequest{
 				StreamId:                    streamId,
 				OutputUuid:                  uuid.New().String(),
 				InMemoryStreamSize:          10,
@@ -321,18 +320,18 @@ func TestInMemoryMatchingEngine_StopInterruptsWaitingReceive(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("StopWakesUpWaitingReceive", func(t *testing.T) {
-		var receiveResp *genapi.ReceiveResponse
+		var receiveResp *InternalReceiveResponse
 		var receiveErrorType ErrorType
 		var receiveErr error
 		done := make(chan bool)
 
 		// Start receiving in a goroutine (this should wait)
 		go func() {
-			receiveReq := ReceiveRequest{
+			receiveReq := InternalReceiveRequest{
 				StreamId:       "test-stream-stop",
 				TimeoutSeconds: 30, // Long timeout
 			}
-			receiveResp, receiveErrorType, receiveErr = engine.Receive(receiveReq)
+			receiveResp, receiveErrorType, receiveErr = engine.Receive(&receiveReq)
 			done <- true
 		}()
 
@@ -376,7 +375,7 @@ func TestInMemoryMatchingEngine_ConcurrentSendReceive(t *testing.T) {
 			go func(streamId int) {
 				defer wg.Done()
 				for msgIndex := 0; msgIndex < numMessagesPerStream; msgIndex++ {
-					sendReq := genapi.SendRequest{
+					sendReq := &InternalSendRequest{
 						StreamId:                    fmt.Sprintf("concurrent-stream-%d", streamId),
 						OutputUuid:                  uuid.New().String(),
 						InMemoryStreamSize:          10,
@@ -396,11 +395,11 @@ func TestInMemoryMatchingEngine_ConcurrentSendReceive(t *testing.T) {
 			go func(streamId int) {
 				defer wg.Done()
 				for msgIndex := 0; msgIndex < numMessagesPerStream; msgIndex++ {
-					receiveReq := ReceiveRequest{
+					receiveReq := InternalReceiveRequest{
 						StreamId:       fmt.Sprintf("concurrent-stream-%d", streamId),
 						TimeoutSeconds: 10,
 					}
-					resp, errorType, err := engine.Receive(receiveReq)
+					resp, errorType, err := engine.Receive(&receiveReq)
 					assert.NoError(t, err)
 					assert.Equal(t, ErrorTypeNone, errorType)
 					assert.NotNil(t, resp)
@@ -421,25 +420,25 @@ func TestInMemoryMatchingEngine_RemainingTimeoutCalculation(t *testing.T) {
 	t.Run("RemainingTimeoutAfterWait", func(t *testing.T) {
 		streamId := "test-timeout-calc"
 
-		var receiveResp *genapi.ReceiveResponse
+		var receiveResp *InternalReceiveResponse
 		var receiveErrorType ErrorType
 		var receiveErr error
 		done := make(chan bool)
 
 		// Start receiving with 5 second timeout
 		go func() {
-			receiveReq := ReceiveRequest{
+			receiveReq := InternalReceiveRequest{
 				StreamId:       streamId,
 				TimeoutSeconds: 5,
 			}
-			receiveResp, receiveErrorType, receiveErr = engine.Receive(receiveReq)
+			receiveResp, receiveErrorType, receiveErr = engine.Receive(&receiveReq)
 			done <- true
 		}()
 
 		// Wait 2 seconds, then send data
 		time.Sleep(2 * time.Second)
 
-		sendReq := genapi.SendRequest{
+		sendReq := &InternalSendRequest{
 			StreamId:                    streamId,
 			OutputUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          10,
@@ -467,25 +466,25 @@ func TestInMemoryMatchingEngine_RemainingTimeoutCalculation(t *testing.T) {
 	t.Run("InsufficientRemainingTimeout", func(t *testing.T) {
 		streamId := "test-insufficient-timeout"
 
-		var receiveResp *genapi.ReceiveResponse
+		var receiveResp *InternalReceiveResponse
 		var receiveErrorType ErrorType
 		var receiveErr error
 		done := make(chan bool)
 
 		// Start receiving with 2 second timeout
 		go func() {
-			receiveReq := ReceiveRequest{
+			receiveReq := InternalReceiveRequest{
 				StreamId:       streamId,
 				TimeoutSeconds: 2,
 			}
-			receiveResp, receiveErrorType, receiveErr = engine.Receive(receiveReq)
+			receiveResp, receiveErrorType, receiveErr = engine.Receive(&receiveReq)
 			done <- true
 		}()
 
 		// Wait 1.8 seconds, then send data (leaving < 1 second)
 		time.Sleep(1800 * time.Millisecond)
 
-		sendReq := genapi.SendRequest{
+		sendReq := &InternalSendRequest{
 			StreamId:                    streamId,
 			OutputUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          10,
