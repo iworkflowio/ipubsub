@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	genapi "github.com/iworkflowio/async-output-service/genapi/go"
 )
 
 type InMemoryMatchingEngine struct {
@@ -71,7 +70,7 @@ func (i *InMemoryMatchingEngine) Stop() error {
 }
 
 // Send implements MatchingEngine.
-func (i *InMemoryMatchingEngine) Send(req genapi.SendRequest) (errorType ErrorType, err error) {
+func (i *InMemoryMatchingEngine) Send(req *InternalSendRequest) (errorType ErrorType, err error) {
 	// Quick check if stopped (read lock not needed for boolean read)
 	if i.stopped {
 		return ErrorTypeStreamStopped, ErrStreamStopped
@@ -132,12 +131,12 @@ func (i *InMemoryMatchingEngine) Send(req genapi.SendRequest) (errorType ErrorTy
 		req.Output,
 		outputUuid,
 		time.Now(),
-		int(req.BlockingWriteTimeoutSeconds),
+		req.BlockingWriteTimeoutSeconds,
 	)
 }
 
 // Receive implements MatchingEngine.
-func (i *InMemoryMatchingEngine) Receive(req ReceiveRequest) (resp *genapi.ReceiveResponse, errorType ErrorType, err error) {
+func (i *InMemoryMatchingEngine) Receive(req *InternalReceiveRequest) (resp *InternalReceiveResponse, errorType ErrorType, err error) {
 	// Quick check if stopped (read lock not needed for boolean read)
 	if i.stopped {
 		return nil, ErrorTypeStreamStopped, ErrStreamStopped
@@ -233,10 +232,10 @@ func (i *InMemoryMatchingEngine) Receive(req ReceiveRequest) (resp *genapi.Recei
 }
 
 func safeClose(ch chan struct{}) {
-    select {
-    case <-ch:
-        // Already closed, do nothing
-    default:
-        close(ch)
-    }
+	select {
+	case <-ch:
+		// Already closed, do nothing
+	default:
+		close(ch)
+	}
 }

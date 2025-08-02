@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	genapi "github.com/iworkflowio/async-output-service/genapi/go"
 )
 
 // StreamEntry represents a single output entry in the stream
@@ -129,7 +128,7 @@ func (i *InMemoryStreamImpl) sendBlockingQueueWithChannel(entry StreamEntry, tim
 }
 
 // Receive implements InMemoeryStream.
-func (i *InMemoryStreamImpl) Receive(timeoutSeconds int) (output *genapi.ReceiveResponse, errorType ErrorType, err error) {
+func (i *InMemoryStreamImpl) Receive(timeoutSeconds int) (output *InternalReceiveResponse, errorType ErrorType, err error) {
 	// Quick check if stopped (without lock since it's just a read)
 	if i.stopped {
 		return nil, ErrorTypeStreamStopped, ErrStreamStopped
@@ -138,12 +137,11 @@ func (i *InMemoryStreamImpl) Receive(timeoutSeconds int) (output *genapi.Receive
 	select {
 	case entry := <-i.outputs:
 		// Successfully received an entry
-		response := &genapi.ReceiveResponse{
-			OutputUuid: entry.OutputUUID.String(),
+		return &InternalReceiveResponse{
+			OutputUuid: entry.OutputUUID,
 			Output:     entry.Output,
 			Timestamp:  entry.Timestamp,
-		}
-		return response, ErrorTypeNone, nil
+		}, ErrorTypeNone, nil
 	case <-i.stopCh:
 		return nil, ErrorTypeStreamStopped, ErrStreamStopped
 	case <-time.After(time.Duration(timeoutSeconds) * time.Second):
