@@ -135,6 +135,10 @@ func (s *Service) handleSend(c *gin.Context) {
 			c.JSON(http.StatusFailedDependency, gin.H{"error": "long poll waiting timeout"})
 			return
 		}
+		if errType == engine.ErrorTypeInvalidRequest {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request schema"})
+			return
+		}
 		if errType != engine.ErrorTypeNone {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to send for " + string(errType)})
 			return
@@ -217,7 +221,15 @@ func (s *Service) handleReceive(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to receive for " + string(errType)})
 			return
 		}
-		c.JSON(http.StatusOK, resp)
+
+		// Convert internal response to API response
+		outputUuidStr := resp.OutputUuid.String()
+		apiResponse := &genapi.ReceiveResponse{
+			OutputUuid: &outputUuidStr,
+			Output:     resp.Output,
+			Timestamp:  resp.Timestamp,
+		}
+		c.JSON(http.StatusOK, apiResponse)
 	} else {
 		// forward the request to the owner node
 

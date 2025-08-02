@@ -1,0 +1,3 @@
+### send test
+GET http://localhost:16681/api/v1/streams/receive?streamId=test-stream&timeoutSeconds=10
+Content-Type: application/json
