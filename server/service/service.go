@@ -4,32 +4,51 @@
 package service
 
 import (
+	"io"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/iworkflowio/async-output-service/config"
+	"github.com/iworkflowio/async-output-service/engine"
+	"github.com/iworkflowio/async-output-service/genapi"
 	"github.com/iworkflowio/async-output-service/membership"
 	"github.com/iworkflowio/async-output-service/service/log"
 	"github.com/iworkflowio/async-output-service/service/log/tag"
 )
 
 const (
-	SEND_API_PATH           = "/api/v1/streams/send"
-	RECEIVE_API_PATH        = "/api/v1/streams/receive"
-	SEND_AND_STORE_API_PATH = "/api/v1/streams/sendAndStore"
+	SEND_API_PATH    = "/api/v1/streams/send"
+	RECEIVE_API_PATH = "/api/v1/streams/receive"
 )
 
+const DefaultReceiveTimeoutSeconds = 30
+
 type Service struct {
-	config     *config.Config
-	ginEngine  *gin.Engine
+	config *config.Config
+	logger log.Logger
+
 	membership membership.NodeMembership
-	logger     log.Logger
+	engine     engine.MatchingEngine
+	hashring   membership.Hashring
 }
 
 func NewService(config *config.Config, logger log.Logger) *Service {
+	ms, err := membership.NewNodeMembershipImpl(config, logger)
+	if err != nil {
+		panic(err)
+	}
+
+	engine := engine.NewInMemoryMatchingEngine()
+	hashring := membership.NewHashring(logger, config.HashRingConfig.VirtualNodes)
+
 	return &Service{
-		config: config,
-		logger: logger,
+		config:     config,
+		logger:     logger,
+		membership: ms,
+		engine:     engine,
+		hashring:   hashring,
 	}
 }
 
@@ -44,7 +63,6 @@ func (s *Service) Start() {
 		c.JSON(http.StatusOK, gin.H{"hello": "This is the async output service"})
 	})
 	ginEngine.POST(SEND_API_PATH, s.handleSend)
-	ginEngine.POST(SEND_AND_STORE_API_PATH, s.handleSendAndStore)
 	ginEngine.GET(RECEIVE_API_PATH, s.handleReceive)
 
 	err := s.bootstrap()
@@ -63,23 +81,165 @@ func (s *Service) Stop() {
 	s.logger.Info("Stopping service")
 }
 
-func (s *Service) handleSend(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
-}
-
-func (s *Service) handleSendAndStore(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
-}
-
-func (s *Service) handleReceive(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
-}
-
 func (s *Service) bootstrap() error {
-	membership, err := membership.NewNodeMembershipImpl(s.config, s.logger)
+	err := s.engine.Start()
 	if err != nil {
 		return err
 	}
-	s.membership = membership
+
 	return s.membership.Start()
+}
+
+func (s *Service) handleSend(c *gin.Context) {
+	var req genapi.SendRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request schema"})
+		return
+	}
+
+	nodes, err := s.membership.GetAllNodes()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get all nodes"})
+		return
+	}
+
+	ownerNode, err := s.hashring.GetNodeForStreamId(req.StreamId, s.membership.GetVersion(), nodes)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get hashring node"})
+		return
+	}
+
+	// default to 0 if not set to avoid NPE
+	if req.InMemoryStreamSize == nil {
+		req.InMemoryStreamSize = genapi.PtrInt32(0)
+	}
+	if req.BlockingWriteTimeoutSeconds == nil {
+		req.BlockingWriteTimeoutSeconds = genapi.PtrInt32(0)
+	}
+
+	if ownerNode.IsSelf {
+		// owner node, handle the request locally
+		errType, err := s.engine.Send(&engine.InternalSendRequest{
+			StreamId:                    req.StreamId,
+			Output:                      req.Output,
+			OutputUuid:                  req.OutputUuid,
+			Timestamp:                   time.Now(),
+			InMemoryStreamSize:          int(*req.InMemoryStreamSize),
+			BlockingWriteTimeoutSeconds: int(*req.BlockingWriteTimeoutSeconds),
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to send"})
+			return
+		}
+		if errType == engine.ErrorTypeWaitingTimeout {
+			c.JSON(http.StatusFailedDependency, gin.H{"error": "long poll waiting timeout"})
+			return
+		}
+		if errType != engine.ErrorTypeNone {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to send for " + string(errType)})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"errorType": errType})
+	} else {
+		// forward the request to the owner node
+		apiClient := genapi.NewAPIClient(&genapi.Configuration{
+			Servers: []genapi.ServerConfiguration{
+				{
+					URL: ownerNode.Addr,
+				},
+			},
+		})
+		request := apiClient.DefaultAPI.SendOutput(c.Request.Context())
+		request.SendRequest(req)
+		httpResponse, err := request.Execute()
+		if err != nil || httpResponse.StatusCode != http.StatusOK {
+			bodyMsg, _ := io.ReadAll(httpResponse.Body)
+			c.JSON(httpResponse.StatusCode, gin.H{"error": string(bodyMsg) +
+				" " + err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": "true"})
+	}
+}
+
+func (s *Service) handleReceive(c *gin.Context) {
+	// get streamId from query params
+	streamId := c.Query("streamId")
+	if streamId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "streamId is required"})
+		return
+	}
+
+	timeoutSecondsStr := c.Query("timeoutSeconds")
+	readFromDB := c.Query("readFromDB")
+	if readFromDB != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "not supported yet"})
+		return
+	}
+
+	var timeoutSeconds int
+	if timeoutSecondsStr == "" {
+		timeoutSeconds = DefaultReceiveTimeoutSeconds
+	}
+	timeoutSeconds, err := strconv.Atoi(timeoutSecondsStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid timeoutSeconds"})
+		return
+	}
+
+	nodes, err := s.membership.GetAllNodes()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get all nodes"})
+		return
+	}
+
+	ownerNode, err := s.hashring.GetNodeForStreamId(streamId, s.membership.GetVersion(), nodes)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get hashring node"})
+		return
+	}
+
+	if ownerNode.IsSelf {
+		// owner node, handle the request locally
+		resp, errType, err := s.engine.Receive(&engine.InternalReceiveRequest{
+			StreamId:       streamId,
+			TimeoutSeconds: timeoutSeconds,
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to receive"})
+			return
+		}
+		if errType == engine.ErrorTypeWaitingTimeout {
+			c.JSON(http.StatusFailedDependency, gin.H{"error": "long poll waiting timeout"})
+			return
+		}
+		if errType != engine.ErrorTypeNone {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to receive for " + string(errType)})
+			return
+		}
+		c.JSON(http.StatusOK, resp)
+	} else {
+		// forward the request to the owner node
+
+		apiClient := genapi.NewAPIClient(&genapi.Configuration{
+			// TODO add headers to tell how many jumps we have done
+			Servers: []genapi.ServerConfiguration{
+				{
+					URL: ownerNode.Addr,
+				},
+			},
+		})
+		request := apiClient.DefaultAPI.ReceiveOutput(c.Request.Context())
+		request.StreamId(streamId)
+		request.TimeoutSeconds(int32(timeoutSeconds))
+		response, httpResponse, err := request.Execute()
+		if err != nil || httpResponse.StatusCode != http.StatusOK {
+			bodyMsg, _ := io.ReadAll(httpResponse.Body)
+			c.JSON(httpResponse.StatusCode, gin.H{"error": string(bodyMsg) +
+				" " + err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	}
+
 }

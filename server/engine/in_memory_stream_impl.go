@@ -160,7 +160,8 @@ func (i *InMemoryStreamImpl) Stop() error {
 	}
 
 	i.stopped = true
-	close(i.stopCh) // 🔧 ADD THIS - close the channel to unblock waiting operations
+	close(i.stopCh) 
+	// TODO move the received outputs to the new node that owned the streamId
 	close(i.outputs)
 	return nil
 }

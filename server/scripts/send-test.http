@@ -1,0 +1,9 @@
+### send test
+POST http://localhost:16681/api/v1/streams/send
+Content-Type: application/json
+
+{
+  "streamId": "test-stream",
+  "output": "test-string-output",
+  "outputUuid": "3b8f50e0-30f7-4a89-b07a-11d86059e8a9"
+}
