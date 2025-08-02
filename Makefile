@@ -4,9 +4,15 @@ gen-all: api-code-gen-server # api-code-gen-ts api-code-gen-py
 
 api-code-gen-server: #generate/refresh go server code for api.yaml, do this after update the api.yaml
 	rm -Rf ./server/genapi ; true
-	java -jar openapi-generator-cli-7.14.0.jar generate -i api.yaml -g go-gin-server -o server/genapi/ -p packageName=genapi -p generateInterfaces=true -p isGoSubmodule=false --git-user-id iworkflowio --git-repo-id async-output-service
+	java -jar openapi-generator-cli-7.14.0.jar generate -i api.yaml -g go -o server/genapi/ -p packageName=genapi -p generateInterfaces=true -p isGoSubmodule=false --git-user-id iworkflowio --git-repo-id async-output-service
 	gofmt -s -w server/genapi;
-	rm ./server/genapi/main.go ; rm ./server/genapi/go/routers.go ;  rm ./server/genapi/go.*; rm -rf ./server/genapi/api; rm -rf ./server/genapi/Dockerfile
+	rm -Rf ./server/genapi/go*; 
+	rm -Rf ./server/genapi/git_push.sh;
+	rm -Rf ./server/genapi/README.md;
+	rm -Rf ./server/genapi/test;
+	rm -Rf ./server/genapi/docs;
+	rm -Rf ./server/genapi/api;
+	rm -Rf ./server/genapi/.*;
 	true
 
 #api-code-gen-ts: #generate/refresh typescript apis
