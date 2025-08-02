@@ -16,6 +16,9 @@ type (
 		Stop() error
 		// Get all nodes in the cluster
 		GetAllNodes() ([]NodeInfo, error)
+
+		// Get the current membership version
+		GetVersion() int64
 	}
 
 	NodeInfo struct {
