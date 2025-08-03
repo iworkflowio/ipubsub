@@ -12,9 +12,8 @@ This directory contains all project documentation including:
 
 ```
 docs/
-├── design/                 # Architecture and design documents
-│   ├── api-design.md      # API design decisions and rationale
-│   └── database-design.md # Database schema and optimization strategies
+├── api-design.md      # API design decisions and rationale
+├── system-design.md # Database schema and optimization strategies
 ├── repo-layout.md         # Repository structure and organization
 └── README.md              # This file
 ```

@@ -33,7 +33,15 @@ See more details in [requirements](./REQUIREMENTS.md)
 - **Message Persistence**: Optional storage with replay capability using resume tokens
 - **Per-message TTL**: Individual message expiration (not stream-level)
 
+## Architecture
+
+iPubSub uses a distributed hash ring to route streams to specific nodes, ensuring scalability and fault tolerance. Each node can handle both publishing and subscribing, with automatic request forwarding to the owning node.
+
+See more details in [design doc](./docs/system-design.md)
+
 ## API Overview
+
+Simplied REST APIs. 
 
 **Send Message:**
 ```http
@@ -54,7 +62,7 @@ GET /api/v1/streams/receive?streamId=user-notifications&timeoutSeconds=30
 
 ## Supported Databases
 
-- **Cassandra** (recommended for production)
+- **Cassandra** (recommended for high scale)
 - **MongoDB**
 - **PostgreSQL**
 - **MySQL**
@@ -78,11 +86,6 @@ GET /api/v1/streams/receive?streamId=user-notifications&timeoutSeconds=30
    go run ./cmd --config config/multi-node-3.yaml
    ```
 
-## Architecture
-
-iPubSub uses a distributed hash ring to route streams to specific nodes, ensuring scalability and fault tolerance. Each node can handle both publishing and subscribing, with automatic request forwarding to the owning node.
-
-See more details in [design doc](./docs/system-design.md)
 
 ## Use Cases
 
