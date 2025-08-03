@@ -1,7 +1,7 @@
 /*
-Async Output Service API
+iPubSub API
 
-An API for real-time matching of asynchronous output generation with client consumption.  The service acts as a matching intermediary between applications generating outputs  asynchronously and clients waiting to receive specific outputs in real-time.  **Core Concept**: Stream-based matching using streamID to connect senders with receivers.  **Phase 1**: Real-time in-memory matching with long polling **Phase 2**: Persistent storage with replay capability
+A lightweight, scalable pub-sub service API that supports both real-time message delivery and persistent storage.  iPubSub enables publishers to send messages to lightweight topics/streams, and subscribers to receive messages  using efficient long-polling. Topics are created dynamically on first message without explicit provisioning.  **Core Features:** - **Real-time Matching**: Publishers and subscribers are matched in real-time using long polling - **Dynamic Topics**: Lightweight topics/streams created automatically on first message - **Dual Storage**: Messages can be delivered in-memory for real-time consumption and/or persisted for replay - **Per-message TTL**: Individual message expiration (not stream-level) - **Horizontal Scaling**: Distributed hash ring for stream routing across nodes
 
 API version: 1.0.0
 */

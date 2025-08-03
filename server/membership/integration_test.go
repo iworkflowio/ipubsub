@@ -3,7 +3,7 @@ package membership
 import (
 	"testing"
 
-	"github.com/iworkflowio/async-output-service/service/log/loggerimpl"
+	"github.com/iworkflowio/ipubsub/service/log/loggerimpl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

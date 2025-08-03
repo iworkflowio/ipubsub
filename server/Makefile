@@ -1,9 +1,9 @@
-# Async Output Service - Server Makefile
+# iPubSub - Server Makefile
 
 .PHONY: build clean test test-integration lint fmt vet deps run dev docker help
 
 # Build variables
-BINARY_NAME=async-output-service
+BINARY_NAME=ipubsub
 BUILD_DIR=build
 MAIN_PATH=./cmd
 
@@ -85,7 +85,7 @@ dev:
 # Build Docker image
 docker:
 	@echo "Building Docker image..."
-	docker build -t async-output-service:latest -f ../docker/Dockerfile.server .
+	docker build -t ipubsub:latest -f ../docker/Dockerfile.server .
 
 # Show help
 help:

@@ -1,7 +1,7 @@
 /*
-Async Output Service API
+iPubSub API
 
-An API for real-time matching of asynchronous output generation with client consumption.  The service acts as a matching intermediary between applications generating outputs  asynchronously and clients waiting to receive specific outputs in real-time.  **Core Concept**: Stream-based matching using streamID to connect senders with receivers.  **Phase 1**: Real-time in-memory matching with long polling **Phase 2**: Persistent storage with replay capability
+A lightweight, scalable pub-sub service API that supports both real-time message delivery and persistent storage.  iPubSub enables publishers to send messages to lightweight topics/streams, and subscribers to receive messages  using efficient long-polling. Topics are created dynamically on first message without explicit provisioning.  **Core Features:** - **Real-time Matching**: Publishers and subscribers are matched in real-time using long polling - **Dynamic Topics**: Lightweight topics/streams created automatically on first message - **Dual Storage**: Messages can be delivered in-memory for real-time consumption and/or persisted for replay - **Per-message TTL**: Individual message expiration (not stream-level) - **Horizontal Scaling**: Distributed hash ring for stream routing across nodes
 
 API version: 1.0.0
 */
@@ -21,19 +21,19 @@ var _ MappedNullable = &SendRequest{}
 
 // SendRequest struct for SendRequest
 type SendRequest struct {
-	// Unique identifier for the output
-	OutputUuid string `json:"outputUuid"`
-	// Unique identifier for the output stream
+	// Unique identifier for the message
+	MessageUuid string `json:"messageUuid"`
+	// Unique identifier for the stream/topic
 	StreamId string `json:"streamId"`
-	// The size of the in-memory stream. Only used when writeToDB is false. Default is 100. It will be used at the first request of send API call for the stream, until the async output service instance is stopped. The stream will be a circular buffer unless using blockingWriteTimeoutSeconds. Circular buffer means the oldest output will be deleted when the stream is full. If using blockingWriteTimeoutSeconds, the stream will not delete the oldest output when the stream is full. In certain cases, setting this to zero, and using blockingWriteTimeoutSeconds, will make the stream behave like a sync match queue(no data loss but requires client to retry to wait for the stream to be available to write to).
+	// The size of the in-memory stream. Only used when writeToDB is false. Default is 100. It will be used at the first request of send API call for the stream, until the iPubSub service instance is stopped. The stream will be a circular buffer unless using blockingSendTimeoutSeconds. Circular buffer means the oldest message will be deleted when the stream is full. If using blockingSendTimeoutSeconds, the stream will not delete the oldest message when the stream is full. In certain cases, setting this to zero, and using blockingSendTimeoutSeconds, will make the stream behave like a sync match queue(no data loss but requires client to retry to wait for the stream to be available to send to).
 	InMemoryStreamSize *int32 `json:"inMemoryStreamSize,omitempty"`
-	// The timeout in seconds for waiting for the in-memory stream to be available to write to. Using this means the stream is not a circular buffer(not delete the oldest output when the stream is full). It will return 424 error if the stream is full after waiting. Using this with inMemoryStreamSize set to zero will make the stream behave like a sync match queue(no data loss but requires client to retry to wait for the stream to be available to write to).
-	BlockingWriteTimeoutSeconds *int32 `json:"blockingWriteTimeoutSeconds,omitempty"`
-	// The output data to send as JSON object
-	Output map[string]interface{} `json:"output"`
+	// The timeout in seconds for waiting for the in-memory stream to be available to send to. Using this means the stream is not a circular buffer(not delete the oldest message when the stream is full). It will return 424 error if the stream is full after waiting. Using this with inMemoryStreamSize set to zero will make the stream behave like a sync match queue(no data loss but requires client to retry to wait for the stream to be available to send to).
+	BlockingSendTimeoutSeconds *int32 `json:"blockingSendTimeoutSeconds,omitempty"`
+	// The message data to send (can be any JSON value - object, array, string, number, boolean, or null)
+	Message interface{} `json:"message"`
 	// Whether to write to the database. By default, this is false.
 	WriteToDB *bool `json:"writeToDB,omitempty"`
-	// The TTL in seconds for the output in the database. Only used when writeToDB is true. Default is 24 * 60 * 60 (24 hours).
+	// The TTL in seconds for the message in the database. Only used when writeToDB is true. Default is 24 * 60 * 60 (24 hours).
 	DbTTLSeconds *int32 `json:"dbTTLSeconds,omitempty"`
 }
 
@@ -43,11 +43,11 @@ type _SendRequest SendRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewSendRequest(outputUuid string, streamId string, output map[string]interface{}) *SendRequest {
+func NewSendRequest(messageUuid string, streamId string, message interface{}) *SendRequest {
 	this := SendRequest{}
-	this.OutputUuid = outputUuid
+	this.MessageUuid = messageUuid
 	this.StreamId = streamId
-	this.Output = output
+	this.Message = message
 	return &this
 }
 
@@ -59,28 +59,28 @@ func NewSendRequestWithDefaults() *SendRequest {
 	return &this
 }
 
-// GetOutputUuid returns the OutputUuid field value
-func (o *SendRequest) GetOutputUuid() string {
+// GetMessageUuid returns the MessageUuid field value
+func (o *SendRequest) GetMessageUuid() string {
 	if o == nil {
 		var ret string
 		return ret
 	}
 
-	return o.OutputUuid
+	return o.MessageUuid
 }
 
-// GetOutputUuidOk returns a tuple with the OutputUuid field value
+// GetMessageUuidOk returns a tuple with the MessageUuid field value
 // and a boolean to check if the value has been set.
-func (o *SendRequest) GetOutputUuidOk() (*string, bool) {
+func (o *SendRequest) GetMessageUuidOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return &o.OutputUuid, true
+	return &o.MessageUuid, true
 }
 
-// SetOutputUuid sets field value
-func (o *SendRequest) SetOutputUuid(v string) {
-	o.OutputUuid = v
+// SetMessageUuid sets field value
+func (o *SendRequest) SetMessageUuid(v string) {
+	o.MessageUuid = v
 }
 
 // GetStreamId returns the StreamId field value
@@ -139,60 +139,62 @@ func (o *SendRequest) SetInMemoryStreamSize(v int32) {
 	o.InMemoryStreamSize = &v
 }
 
-// GetBlockingWriteTimeoutSeconds returns the BlockingWriteTimeoutSeconds field value if set, zero value otherwise.
-func (o *SendRequest) GetBlockingWriteTimeoutSeconds() int32 {
-	if o == nil || IsNil(o.BlockingWriteTimeoutSeconds) {
+// GetBlockingSendTimeoutSeconds returns the BlockingSendTimeoutSeconds field value if set, zero value otherwise.
+func (o *SendRequest) GetBlockingSendTimeoutSeconds() int32 {
+	if o == nil || IsNil(o.BlockingSendTimeoutSeconds) {
 		var ret int32
 		return ret
 	}
-	return *o.BlockingWriteTimeoutSeconds
+	return *o.BlockingSendTimeoutSeconds
 }
 
-// GetBlockingWriteTimeoutSecondsOk returns a tuple with the BlockingWriteTimeoutSeconds field value if set, nil otherwise
+// GetBlockingSendTimeoutSecondsOk returns a tuple with the BlockingSendTimeoutSeconds field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SendRequest) GetBlockingWriteTimeoutSecondsOk() (*int32, bool) {
-	if o == nil || IsNil(o.BlockingWriteTimeoutSeconds) {
+func (o *SendRequest) GetBlockingSendTimeoutSecondsOk() (*int32, bool) {
+	if o == nil || IsNil(o.BlockingSendTimeoutSeconds) {
 		return nil, false
 	}
-	return o.BlockingWriteTimeoutSeconds, true
+	return o.BlockingSendTimeoutSeconds, true
 }
 
-// HasBlockingWriteTimeoutSeconds returns a boolean if a field has been set.
-func (o *SendRequest) HasBlockingWriteTimeoutSeconds() bool {
-	if o != nil && !IsNil(o.BlockingWriteTimeoutSeconds) {
+// HasBlockingSendTimeoutSeconds returns a boolean if a field has been set.
+func (o *SendRequest) HasBlockingSendTimeoutSeconds() bool {
+	if o != nil && !IsNil(o.BlockingSendTimeoutSeconds) {
 		return true
 	}
 
 	return false
 }
 
-// SetBlockingWriteTimeoutSeconds gets a reference to the given int32 and assigns it to the BlockingWriteTimeoutSeconds field.
-func (o *SendRequest) SetBlockingWriteTimeoutSeconds(v int32) {
-	o.BlockingWriteTimeoutSeconds = &v
+// SetBlockingSendTimeoutSeconds gets a reference to the given int32 and assigns it to the BlockingSendTimeoutSeconds field.
+func (o *SendRequest) SetBlockingSendTimeoutSeconds(v int32) {
+	o.BlockingSendTimeoutSeconds = &v
 }
 
-// GetOutput returns the Output field value
-func (o *SendRequest) GetOutput() map[string]interface{} {
+// GetMessage returns the Message field value
+// If the value is explicit nil, the zero value for interface{} will be returned
+func (o *SendRequest) GetMessage() interface{} {
 	if o == nil {
-		var ret map[string]interface{}
+		var ret interface{}
 		return ret
 	}
 
-	return o.Output
+	return o.Message
 }
 
-// GetOutputOk returns a tuple with the Output field value
+// GetMessageOk returns a tuple with the Message field value
 // and a boolean to check if the value has been set.
-func (o *SendRequest) GetOutputOk() (map[string]interface{}, bool) {
-	if o == nil {
-		return map[string]interface{}{}, false
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *SendRequest) GetMessageOk() (*interface{}, bool) {
+	if o == nil || IsNil(o.Message) {
+		return nil, false
 	}
-	return o.Output, true
+	return &o.Message, true
 }
 
-// SetOutput sets field value
-func (o *SendRequest) SetOutput(v map[string]interface{}) {
-	o.Output = v
+// SetMessage sets field value
+func (o *SendRequest) SetMessage(v interface{}) {
+	o.Message = v
 }
 
 // GetWriteToDB returns the WriteToDB field value if set, zero value otherwise.
@@ -269,15 +271,17 @@ func (o SendRequest) MarshalJSON() ([]byte, error) {
 
 func (o SendRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	toSerialize["outputUuid"] = o.OutputUuid
+	toSerialize["messageUuid"] = o.MessageUuid
 	toSerialize["streamId"] = o.StreamId
 	if !IsNil(o.InMemoryStreamSize) {
 		toSerialize["inMemoryStreamSize"] = o.InMemoryStreamSize
 	}
-	if !IsNil(o.BlockingWriteTimeoutSeconds) {
-		toSerialize["blockingWriteTimeoutSeconds"] = o.BlockingWriteTimeoutSeconds
+	if !IsNil(o.BlockingSendTimeoutSeconds) {
+		toSerialize["blockingSendTimeoutSeconds"] = o.BlockingSendTimeoutSeconds
 	}
-	toSerialize["output"] = o.Output
+	if o.Message != nil {
+		toSerialize["message"] = o.Message
+	}
 	if !IsNil(o.WriteToDB) {
 		toSerialize["writeToDB"] = o.WriteToDB
 	}
@@ -292,9 +296,9 @@ func (o *SendRequest) UnmarshalJSON(data []byte) (err error) {
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
-		"outputUuid",
+		"messageUuid",
 		"streamId",
-		"output",
+		"message",
 	}
 
 	allProperties := make(map[string]interface{})

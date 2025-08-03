@@ -11,10 +11,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/iworkflowio/async-output-service/config"
-	"github.com/iworkflowio/async-output-service/service"
-	"github.com/iworkflowio/async-output-service/service/log/loggerimpl"
-	"github.com/iworkflowio/async-output-service/service/log/tag"
+	"github.com/iworkflowio/ipubsub/config"
+	"github.com/iworkflowio/ipubsub/service"
+	"github.com/iworkflowio/ipubsub/service/log/loggerimpl"
+	"github.com/iworkflowio/ipubsub/service/log/tag"
 )
 
 func main() {

@@ -1,90 +1,93 @@
-# Async Output Service 🚧WIP🚧
-The Async Output Service solves the core problem of connecting asynchronous output generation with real-time client consumption. When applications generate outputs asynchronously (e.g., in background processes), they need a way to deliver these outputs to specific clients who are actively waiting for them in real-time.
+# iPubSub
 
-The service acts as a matching intermediary between:
-- **Applications** generating outputs asynchronously without direct client connections
-- **Clients** waiting to receive specific outputs immediately as they become available
+A lightweight, scalable pub-sub service that supports both real-time message delivery and persistent storage with replay capabilities.
 
-## Core Problem Statement
+## Problem Statement
 
-### The Challenge
-- Applications run background processes that generate outputs asynchronously
-- Clients need to receive these outputs in real-time as they become available
-- There's no direct connection between the async application and the waiting client
-- Thousands of output instances may be generated concurrently
-- Thousands of clients may be waiting for different specific outputs simultaneously
+Modern applications need a pub-sub service that can:
 
-### Key Use Cases
-- **AI Agent Progress Updates**: AI agents running background processes (LLM interactions, tool executions) need to stream progress and intermediate results to users
-- **Long-running Task Results**: Applications processing lengthy operations need to deliver results as they become available
-- **Real-time Notifications**: Background services generating events that specific clients are waiting to receive
-- **Durable Output Storage**: Applications need to persist outputs for durability, enabling clients to resume consumption from any point and replay historical outputs when needed
+1. **Handle millions of lightweight topics/streams** - Create topics dynamically on first message without explicit provisioning
+2. **Support both real-time and persistent messaging** - Messages can be delivered in real-time to active subscribers and/or stored for later replay
+3. **Use efficient long-polling** - Reduce network overhead compared to push-based systems
+4. **Scale horizontally** - Handle high throughput with distributed architecture
+5. **Simple operations** - Easy deployment without complex dependencies
 
-## System Design Overview
+## How iPubSub Differs from Existing Solutions
 
-The Async Output Service is designed as a distributed system that enables real-time matching between applications generating outputs asynchronously and clients waiting to receive specific outputs. The system uses a gossip-based clustering approach with consistent hashing for horizontal scalability and fault tolerance.
+| Service | iPubSub | Difference |
+|---------|---------|------------|
+| **AWS SNS** | ✅ Long-poll based<br/>✅ In-memory + persistent modes | SNS: Push-based delivery, only in-memory |
+| **AWS SQS** | ✅ Lightweight streams<br/>✅ Dynamic creation | SQS: Heavy queues, cannot support millions of topics |
+| **Apache Kafka** | ✅ Lightweight topics<br/>✅ No restart required | Kafka: Heavy topics, requires consumer restart |
+| **Redis Pub/Sub** | ✅ Horizontally scalable<br/>✅ Not memory-limited | Redis: Limited by memory size, not horizontally scalable |
+| **Apache Pulsar** | ✅ Per-message TTL<br/>✅ Simple operations | Pulsar: Per-stream TTL, requires BookKeeper + ZooKeeper |
 
-**Inspiration**: This design is similar to [Temporal's matching service architecture](https://github.com/temporalio/temporal/blob/main/docs/architecture/matching-service.md), which provides proven patterns for distributed stream matching at scale.
+**Key Advantage**: iPubSub only requires database for persistence mode(e.g. Cassandra)
 
-### Distributed Cluster Architecture
+See more details in [requirements](./REQUIREMENTS.md)
+
+## Core Concepts
+
+- **Stream/Topic**: Lightweight message channel identified by `streamId`. Created automatically on first message.
+- **Real-time Matching**: Senders(aka publishers) and Receivers (aka subscribers) are matched in real-time using long-polling
+- **Message Persistence**: Optional storage with replay capability using resume tokens
+- **Per-message TTL**: Individual message expiration (not stream-level)
+
+## API Overview
+
+**Send Message:**
+```http
+POST /api/v1/streams/send
+{
+  "streamId": "user-notifications",
+  "messageUuid": "msg-123",
+  "message": {"type": "welcome", "userId": 123},
+  "writeToDB": false,
+  "inMemoryStreamSize": 100
+}
 ```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│    Node A   │◄──►│    Node B   │◄──►│    Node C   │
-│             │    │             │    │             │
-│ Gossip+HTTP │    │ Gossip+HTTP │    │ Gossip+HTTP │
-│             │    │             │    │             │
-│ StreamIDs:  │    │ StreamIDs:  │    │ StreamIDs:  │
-│ hash(0-33%) │    │hash(34-66%) │    │hash(67-99%) │
-└─────────────┘    └─────────────┘    └─────────────┘
-       ▲                   ▲                   ▲
-       │                   │                   │
-   ┌───▼───┐           ┌───▼───┐           ┌───▼───┐
-   │Client │           │Client │           │Client │
-   │Send/  │           │Send/  │           │Send/  │
-   │Receive│           │Receive│           │Receive│
-   └───────┘           └───────┘           └───────┘
+
+**Receive Messages (Long-poll):**
+```http
+GET /api/v1/streams/receive?streamId=user-notifications&timeoutSeconds=30
 ```
 
-See more details in [system design doc](./docs/system-design.md)
+## Supported Databases
 
-### Core Components
+- **Cassandra** (recommended for production)
+- **MongoDB**
+- **PostgreSQL**
+- **MySQL**
 
-#### **Membership Management**
-- **Gossip Protocol**: Uses HashiCorp's memberlist library for node discovery and failure detection
-- **Cluster Formation**: Nodes join cluster via bootstrap node list
-- **Event Handling**: Real-time notifications for node join/leave/failure events
-- **Membership List**: Each node maintains complete view of cluster topology
+## Quick Start
 
-#### **Consistent Hashing Ring**
-- **Stream Routing**: Maps streamId to specific node using consistent hashing
-- **Load Distribution**: Evenly distributes streams across available nodes
-- **Fault Tolerance**: Automatic rebalancing when nodes join/leave cluster
-- **Deterministic Routing**: Same streamId always routes to same node (when topology stable)
+1. **Single Node (Development)**:
+   ```bash
+   go run ./cmd --config config/single-node.yaml
+   ```
 
-#### **Request Processing Engine**
-- **Local Processing**: Handle streams owned by current node
-- **Request Forwarding**: Proxy requests to appropriate node based on streamId ownership
-- **Sync Matching**: Real-time pairing of concurrent send/receive operations
-- **Long Polling**: Timeout-based waiting for asynchronous matching
+2. **Multi-Node Cluster**:
+   ```bash
+   # Node 1
+   go run ./cmd --config config/multi-node-1.yaml
+   
+   # Node 2  
+   go run ./cmd --config config/multi-node-2.yaml
+   
+   # Node 3
+   go run ./cmd --config config/multi-node-3.yaml
+   ```
 
+## Architecture
 
-## Documentations
+iPubSub uses a distributed hash ring to route streams to specific nodes, ensuring scalability and fault tolerance. Each node can handle both publishing and subscribing, with automatic request forwarding to the owning node.
 
-* [Requirement docs](./REQUIREMENTS.md)
-* [API Design docs](./docs/api-design.md)
-* [System Design docss](./docs/system-design.md)
-* [Repo layout](./docs/repo-layout.md)
-* [Design decisoins](./DECISION_LOG.md)
+See more details in [design doc](./docs/system-design.md)
 
+## Use Cases
 
-## Development
-
-* Phase1: In-memory output matching 🚧WIP🚧
-* Phase2: Support persisting output into database 🚧Not Started🚧
-
-## Supported databases
-* [ ] Cassandra
-* [ ] MongoDB
-* [ ] DynamoDB
-* [ ] MySQL
-* [ ] PostgreSQL
+- **Real-time notifications** - User alerts, system events
+- **Event streaming** - Application event distribution  
+- **Chat systems** - Message delivery with optional persistence
+- **IoT data flows** - Sensor data routing and storage
+- **Microservice communication** - Async service-to-service messaging

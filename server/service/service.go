@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/iworkflowio/async-output-service/config"
-	"github.com/iworkflowio/async-output-service/engine"
-	"github.com/iworkflowio/async-output-service/genapi"
-	"github.com/iworkflowio/async-output-service/membership"
-	"github.com/iworkflowio/async-output-service/service/log"
-	"github.com/iworkflowio/async-output-service/service/log/tag"
+	"github.com/iworkflowio/ipubsub/config"
+	"github.com/iworkflowio/ipubsub/engine"
+	"github.com/iworkflowio/ipubsub/genapi"
+	"github.com/iworkflowio/ipubsub/membership"
+	"github.com/iworkflowio/ipubsub/service/log"
+	"github.com/iworkflowio/ipubsub/service/log/tag"
 )
 
 const (
@@ -60,7 +60,7 @@ func (s *Service) Start() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	ginEngine.GET("/", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"hello": "This is the async output service"})
+		c.JSON(http.StatusOK, gin.H{"hello": "This is the iPubSub service"})
 	})
 	ginEngine.POST(SEND_API_PATH, s.handleSend)
 	ginEngine.GET(RECEIVE_API_PATH, s.handleReceive)
@@ -113,19 +113,19 @@ func (s *Service) handleSend(c *gin.Context) {
 	if req.InMemoryStreamSize == nil {
 		req.InMemoryStreamSize = genapi.PtrInt32(0)
 	}
-	if req.BlockingWriteTimeoutSeconds == nil {
-		req.BlockingWriteTimeoutSeconds = genapi.PtrInt32(0)
+	if req.BlockingSendTimeoutSeconds == nil {
+		req.BlockingSendTimeoutSeconds = genapi.PtrInt32(0)
 	}
 
 	if ownerNode.IsSelf {
 		// owner node, handle the request locally
 		errType, err := s.engine.Send(&engine.InternalSendRequest{
-			StreamId:                    req.StreamId,
-			Output:                      req.Output,
-			OutputUuid:                  req.OutputUuid,
-			Timestamp:                   time.Now(),
-			InMemoryStreamSize:          int(*req.InMemoryStreamSize),
-			BlockingWriteTimeoutSeconds: int(*req.BlockingWriteTimeoutSeconds),
+			StreamId:                   req.StreamId,
+			Message:                    req.Message,
+			MessageUuid:                req.MessageUuid,
+			Timestamp:                  time.Now(),
+			InMemoryStreamSize:         int(*req.InMemoryStreamSize),
+			BlockingSendTimeoutSeconds: int(*req.BlockingSendTimeoutSeconds),
 		})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to send"})
@@ -140,7 +140,7 @@ func (s *Service) handleSend(c *gin.Context) {
 			return
 		}
 		if errType != engine.ErrorTypeNone {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to send for " + string(errType)})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to send for " + errType.String()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"errorType": errType})
@@ -153,7 +153,7 @@ func (s *Service) handleSend(c *gin.Context) {
 				},
 			},
 		})
-		request := apiClient.DefaultAPI.SendOutput(c.Request.Context())
+		request := apiClient.DefaultAPI.ApiV1StreamsSendPost(c.Request.Context())
 		request.SendRequest(req)
 		httpResponse, err := request.Execute()
 		if err != nil || httpResponse.StatusCode != http.StatusOK {
@@ -218,16 +218,16 @@ func (s *Service) handleReceive(c *gin.Context) {
 			return
 		}
 		if errType != engine.ErrorTypeNone {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to receive for " + string(errType)})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to receive for " + errType.String()})
 			return
 		}
 
 		// Convert internal response to API response
-		outputUuidStr := resp.OutputUuid.String()
+		messageUuidStr := resp.MessageUuid.String()
 		apiResponse := &genapi.ReceiveResponse{
-			OutputUuid: &outputUuidStr,
-			Output:     resp.Output,
-			Timestamp:  resp.Timestamp,
+			MessageUuid: &messageUuidStr,
+			Message:     resp.Message,
+			Timestamp:   resp.Timestamp,
 		}
 		c.JSON(http.StatusOK, apiResponse)
 	} else {
@@ -241,7 +241,7 @@ func (s *Service) handleReceive(c *gin.Context) {
 				},
 			},
 		})
-		request := apiClient.DefaultAPI.ReceiveOutput(c.Request.Context())
+		request := apiClient.DefaultAPI.ApiV1StreamsReceiveGet(c.Request.Context())
 		request.StreamId(streamId)
 		request.TimeoutSeconds(int32(timeoutSeconds))
 		response, httpResponse, err := request.Execute()

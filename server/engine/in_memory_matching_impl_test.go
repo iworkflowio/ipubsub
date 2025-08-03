@@ -52,10 +52,10 @@ func TestInMemoryMatchingEngine_Send(t *testing.T) {
 	t.Run("SendToNewStream", func(t *testing.T) {
 		req := InternalSendRequest{
 			StreamId:                    "test-stream-1",
-			OutputUuid:                  uuid.New().String(),
+			MessageUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          10,
-			BlockingWriteTimeoutSeconds: 0,
-			Output:                      map[string]interface{}{"message": "hello"},
+			BlockingSendTimeoutSeconds: 0,
+			Message:                      map[string]interface{}{"message": "hello"},
 		}
 
 		errorType, err := engine.Send(&req)
@@ -69,10 +69,10 @@ func TestInMemoryMatchingEngine_Send(t *testing.T) {
 		// First send creates the stream
 		req1 := InternalSendRequest{
 			StreamId:                    streamId,
-			OutputUuid:                  uuid.New().String(),
+			MessageUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          10,
-			BlockingWriteTimeoutSeconds: 0,
-			Output:                      map[string]interface{}{"message": "first"},
+			BlockingSendTimeoutSeconds: 0,
+			Message:                      map[string]interface{}{"message": "first"},
 		}
 		errorType, err := engine.Send(&req1)
 		assert.NoError(t, err)
@@ -81,10 +81,10 @@ func TestInMemoryMatchingEngine_Send(t *testing.T) {
 		// Second send to same stream
 		req2 := InternalSendRequest{
 			StreamId:                    streamId,
-			OutputUuid:                  uuid.New().String(),
+			MessageUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          5, // Should be ignored for existing stream
-			BlockingWriteTimeoutSeconds: 0,
-			Output:                      map[string]interface{}{"message": "second"},
+			BlockingSendTimeoutSeconds: 0,
+			Message:                      map[string]interface{}{"message": "second"},
 		}
 		errorType, err = engine.Send(&req2)
 		assert.NoError(t, err)
@@ -94,10 +94,10 @@ func TestInMemoryMatchingEngine_Send(t *testing.T) {
 	t.Run("SendWithDefaultStreamSize", func(t *testing.T) {
 		req := &InternalSendRequest{
 			StreamId:                    "test-stream-default",
-			OutputUuid:                  uuid.New().String(),
+			MessageUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          0, // Should use default
-			BlockingWriteTimeoutSeconds: 0,
-			Output:                      map[string]interface{}{"message": "default"},
+			BlockingSendTimeoutSeconds: 0,
+			Message:                      map[string]interface{}{"message": "default"},
 		}
 
 		errorType, err := engine.Send(req)
@@ -108,10 +108,10 @@ func TestInMemoryMatchingEngine_Send(t *testing.T) {
 	t.Run("SendWithInvalidUUID", func(t *testing.T) {
 		req := &InternalSendRequest{
 			StreamId:                    "test-stream-invalid",
-			OutputUuid:                  "invalid-uuid",
+			MessageUuid:                  "invalid-uuid",
 			InMemoryStreamSize:          10,
-			BlockingWriteTimeoutSeconds: 0,
-			Output:                      map[string]interface{}{"message": "test"},
+			BlockingSendTimeoutSeconds: 0,
+			Message:                      map[string]interface{}{"message": "test"},
 		}
 
 		errorType, err := engine.Send(req)
@@ -126,10 +126,10 @@ func TestInMemoryMatchingEngine_Send(t *testing.T) {
 
 		req := &InternalSendRequest{
 			StreamId:                    "test-stream-stopped",
-			OutputUuid:                  uuid.New().String(),
+			MessageUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          10,
-			BlockingWriteTimeoutSeconds: 0,
-			Output:                      map[string]interface{}{"message": "test"},
+			BlockingSendTimeoutSeconds: 0,
+			Message:                      map[string]interface{}{"message": "test"},
 		}
 
 		errorType, err := stoppedEngine.Send(req)
@@ -150,10 +150,10 @@ func TestInMemoryMatchingEngine_Receive(t *testing.T) {
 		// First, send data to create stream
 		sendReq := &InternalSendRequest{
 			StreamId:                    streamId,
-			OutputUuid:                  uuid.New().String(),
+			MessageUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          10,
-			BlockingWriteTimeoutSeconds: 0,
-			Output:                      map[string]interface{}{"message": "test-data"},
+			BlockingSendTimeoutSeconds: 0,
+			Message:                      map[string]interface{}{"message": "test-data"},
 		}
 		errorType, err := engine.Send(sendReq)
 		require.NoError(t, err)
@@ -168,7 +168,7 @@ func TestInMemoryMatchingEngine_Receive(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 		assert.NotNil(t, resp)
-		assert.Equal(t, map[string]interface{}{"message": "test-data"}, resp.Output)
+		assert.Equal(t, map[string]interface{}{"message": "test-data"}, resp.Message)
 	})
 
 	t.Run("ReceiveTimeoutFromNonExistentStream", func(t *testing.T) {
@@ -233,10 +233,10 @@ func TestInMemoryMatchingEngine_WaitForStreamCreation(t *testing.T) {
 		// Send data (this should wake up the receiver)
 		sendReq := &InternalSendRequest{
 			StreamId:                    streamId,
-			OutputUuid:                  uuid.New().String(),
+			MessageUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          10,
-			BlockingWriteTimeoutSeconds: 0,
-			Output:                      map[string]interface{}{"message": "delayed-data"},
+			BlockingSendTimeoutSeconds: 0,
+			Message:                      map[string]interface{}{"message": "delayed-data"},
 		}
 		sendErrorType, sendErr := engine.Send(sendReq)
 		require.NoError(t, sendErr)
@@ -249,7 +249,7 @@ func TestInMemoryMatchingEngine_WaitForStreamCreation(t *testing.T) {
 		assert.NoError(t, receiveErr)
 		assert.Equal(t, ErrorTypeNone, receiveErrorType)
 		assert.NotNil(t, receiveResp)
-		assert.Equal(t, map[string]interface{}{"message": "delayed-data"}, receiveResp.Output)
+		assert.Equal(t, map[string]interface{}{"message": "delayed-data"}, receiveResp.Message)
 	})
 }
 
@@ -290,10 +290,10 @@ func TestInMemoryMatchingEngine_MultipleWaiters(t *testing.T) {
 		for i := 0; i < numWaiters; i++ {
 			sendReq := &InternalSendRequest{
 				StreamId:                    streamId,
-				OutputUuid:                  uuid.New().String(),
+				MessageUuid:                  uuid.New().String(),
 				InMemoryStreamSize:          10,
-				BlockingWriteTimeoutSeconds: 0,
-				Output:                      map[string]interface{}{"message": "data", "index": i},
+				BlockingSendTimeoutSeconds: 0,
+				Message:                      map[string]interface{}{"message": "data", "index": i},
 			}
 			sendErrorType, sendErr := engine.Send(sendReq)
 			require.NoError(t, sendErr)
@@ -377,10 +377,10 @@ func TestInMemoryMatchingEngine_ConcurrentSendReceive(t *testing.T) {
 				for msgIndex := 0; msgIndex < numMessagesPerStream; msgIndex++ {
 					sendReq := &InternalSendRequest{
 						StreamId:                    fmt.Sprintf("concurrent-stream-%d", streamId),
-						OutputUuid:                  uuid.New().String(),
+						MessageUuid:                  uuid.New().String(),
 						InMemoryStreamSize:          10,
-						BlockingWriteTimeoutSeconds: 0,
-						Output:                      map[string]interface{}{"stream": streamId, "message": msgIndex},
+						BlockingSendTimeoutSeconds: 0,
+						Message:                      map[string]interface{}{"stream": streamId, "message": msgIndex},
 					}
 					errorType, err := engine.Send(sendReq)
 					assert.NoError(t, err)
@@ -440,10 +440,10 @@ func TestInMemoryMatchingEngine_RemainingTimeoutCalculation(t *testing.T) {
 
 		sendReq := &InternalSendRequest{
 			StreamId:                    streamId,
-			OutputUuid:                  uuid.New().String(),
+			MessageUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          10,
-			BlockingWriteTimeoutSeconds: 0,
-			Output:                      map[string]interface{}{"message": "timeout-test"},
+			BlockingSendTimeoutSeconds: 0,
+			Message:                      map[string]interface{}{"message": "timeout-test"},
 		}
 		sendErrorType, sendErr := engine.Send(sendReq)
 		require.NoError(t, sendErr)
@@ -486,10 +486,10 @@ func TestInMemoryMatchingEngine_RemainingTimeoutCalculation(t *testing.T) {
 
 		sendReq := &InternalSendRequest{
 			StreamId:                    streamId,
-			OutputUuid:                  uuid.New().String(),
+			MessageUuid:                  uuid.New().String(),
 			InMemoryStreamSize:          10,
-			BlockingWriteTimeoutSeconds: 0,
-			Output:                      map[string]interface{}{"message": "insufficient-timeout"},
+			BlockingSendTimeoutSeconds: 0,
+			Message:                      map[string]interface{}{"message": "insufficient-timeout"},
 		}
 		sendErrorType, sendErr := engine.Send(sendReq)
 		require.NoError(t, sendErr)

@@ -1,7 +1,7 @@
 package databases
 
 type (
-	OutputStore interface {
+	MessageStore interface {
 		Close() error
 	}
 )

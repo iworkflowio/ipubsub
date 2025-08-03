@@ -1,6 +1,6 @@
 # Documentation
 
-Comprehensive documentation for the async output service project.
+Comprehensive documentation for the iPubSub service project.
 
 ## Overview
 

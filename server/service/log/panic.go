@@ -25,8 +25,8 @@ import (
 	"net/http"
 	"runtime/debug"
 
-	"github.com/iworkflowio/async-output-service/service/errors"
-	"github.com/iworkflowio/async-output-service/service/log/tag"
+	"github.com/iworkflowio/ipubsub/service/errors"
+	"github.com/iworkflowio/ipubsub/service/log/tag"
 )
 
 // CapturePanic is used to capture panic, it will log the panic and also return the error through pointer.

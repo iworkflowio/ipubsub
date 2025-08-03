@@ -1,7 +1,7 @@
 /*
-Async Output Service API
+iPubSub API
 
-An API for real-time matching of asynchronous output generation with client consumption.  The service acts as a matching intermediary between applications generating outputs  asynchronously and clients waiting to receive specific outputs in real-time.  **Core Concept**: Stream-based matching using streamID to connect senders with receivers.  **Phase 1**: Real-time in-memory matching with long polling **Phase 2**: Persistent storage with replay capability
+A lightweight, scalable pub-sub service API that supports both real-time message delivery and persistent storage.  iPubSub enables publishers to send messages to lightweight topics/streams, and subscribers to receive messages  using efficient long-polling. Topics are created dynamically on first message without explicit provisioning.  **Core Features:** - **Real-time Matching**: Publishers and subscribers are matched in real-time using long polling - **Dynamic Topics**: Lightweight topics/streams created automatically on first message - **Dual Storage**: Messages can be delivered in-memory for real-time consumption and/or persisted for replay - **Per-message TTL**: Individual message expiration (not stream-level) - **Horizontal Scaling**: Distributed hash ring for stream routing across nodes
 
 API version: 1.0.0
 */
@@ -21,46 +21,44 @@ import (
 type DefaultAPI interface {
 
 	/*
-		ReceiveOutput Receive output for a specific stream
+		ApiV1StreamsReceiveGet Subscribe to messages from a stream/topic
 
-		Clients use this endpoint to receive output for a specific streamID.
-	Uses long polling - waits for matching output within the configured timeout period.
-	Returns 424 if no output arrives within timeout.
-
-	**Phase 1**: Receives real-time matched output
-	**Phase 2**: Supports resumeToken for historical replay
+		Subscribers use this endpoint to receive messages for a specific streamId (topic).
+	Uses long polling - waits for messages within the configured timeout period.
+	Returns 424 if no messages arrive within timeout.
 
 
 		@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-		@return ApiReceiveOutputRequest
+		@return ApiApiV1StreamsReceiveGetRequest
 	*/
-	ReceiveOutput(ctx context.Context) ApiReceiveOutputRequest
+	ApiV1StreamsReceiveGet(ctx context.Context) ApiApiV1StreamsReceiveGetRequest
 
-	// ReceiveOutputExecute executes the request
+	// ApiV1StreamsReceiveGetExecute executes the request
 	//  @return ReceiveResponse
-	ReceiveOutputExecute(r ApiReceiveOutputRequest) (*ReceiveResponse, *http.Response, error)
+	ApiV1StreamsReceiveGetExecute(r ApiApiV1StreamsReceiveGetRequest) (*ReceiveResponse, *http.Response, error)
 
 	/*
-		SendOutput Send output to waiting clients
+		ApiV1StreamsSendPost Publish message to a stream/topic
 
-		Applications use this endpoint to send output to clients waiting for a specific streamID.
-	Uses long polling - waits for matching clients within the configured timeout period.
-	Returns 424 if no client is waiting within timeout.
+		Publishers use this endpoint to send messages to a specific streamId (topic).
+
+	The message can be delivered in-memory for real-time consumption and/or
+	persisted to database for replay. Topics are created automatically on first message.
 
 
 		@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-		@return ApiSendOutputRequest
+		@return ApiApiV1StreamsSendPostRequest
 	*/
-	SendOutput(ctx context.Context) ApiSendOutputRequest
+	ApiV1StreamsSendPost(ctx context.Context) ApiApiV1StreamsSendPostRequest
 
-	// SendOutputExecute executes the request
-	SendOutputExecute(r ApiSendOutputRequest) (*http.Response, error)
+	// ApiV1StreamsSendPostExecute executes the request
+	ApiV1StreamsSendPostExecute(r ApiApiV1StreamsSendPostRequest) (*http.Response, error)
 }
 
 // DefaultAPIService DefaultAPI service
 type DefaultAPIService service
 
-type ApiReceiveOutputRequest struct {
+type ApiApiV1StreamsReceiveGetRequest struct {
 	ctx            context.Context
 	ApiService     DefaultAPI
 	streamId       *string
@@ -69,49 +67,46 @@ type ApiReceiveOutputRequest struct {
 	dbResumeToken  *string
 }
 
-// The stream identifier to receive output for
-func (r ApiReceiveOutputRequest) StreamId(streamId string) ApiReceiveOutputRequest {
+// Unique identifier for the stream/topic to subscribe to
+func (r ApiApiV1StreamsReceiveGetRequest) StreamId(streamId string) ApiApiV1StreamsReceiveGetRequest {
 	r.streamId = &streamId
 	return r
 }
 
-// Maximum time to wait for output (default is 30s)
-func (r ApiReceiveOutputRequest) TimeoutSeconds(timeoutSeconds int32) ApiReceiveOutputRequest {
+// Maximum time to wait for messages (seconds)
+func (r ApiApiV1StreamsReceiveGetRequest) TimeoutSeconds(timeoutSeconds int32) ApiApiV1StreamsReceiveGetRequest {
 	r.timeoutSeconds = &timeoutSeconds
 	return r
 }
 
-// Whether to read from the database. By default, this is false.
-func (r ApiReceiveOutputRequest) ReadFromDB(readFromDB bool) ApiReceiveOutputRequest {
+// Whether to read from persistent storage (Phase 2)
+func (r ApiApiV1StreamsReceiveGetRequest) ReadFromDB(readFromDB bool) ApiApiV1StreamsReceiveGetRequest {
 	r.readFromDB = &readFromDB
 	return r
 }
 
-// Resume token for reading from specific position, only applicable when readFromDB is true. Can be empty which will read from the beginning.
-func (r ApiReceiveOutputRequest) DbResumeToken(dbResumeToken string) ApiReceiveOutputRequest {
+// Token for resuming from specific position (Phase 2)
+func (r ApiApiV1StreamsReceiveGetRequest) DbResumeToken(dbResumeToken string) ApiApiV1StreamsReceiveGetRequest {
 	r.dbResumeToken = &dbResumeToken
 	return r
 }
 
-func (r ApiReceiveOutputRequest) Execute() (*ReceiveResponse, *http.Response, error) {
-	return r.ApiService.ReceiveOutputExecute(r)
+func (r ApiApiV1StreamsReceiveGetRequest) Execute() (*ReceiveResponse, *http.Response, error) {
+	return r.ApiService.ApiV1StreamsReceiveGetExecute(r)
 }
 
 /*
-ReceiveOutput Receive output for a specific stream
+ApiV1StreamsReceiveGet Subscribe to messages from a stream/topic
 
-Clients use this endpoint to receive output for a specific streamID.
-Uses long polling - waits for matching output within the configured timeout period.
-Returns 424 if no output arrives within timeout.
-
-**Phase 1**: Receives real-time matched output
-**Phase 2**: Supports resumeToken for historical replay
+Subscribers use this endpoint to receive messages for a specific streamId (topic).
+Uses long polling - waits for messages within the configured timeout period.
+Returns 424 if no messages arrive within timeout.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@return ApiReceiveOutputRequest
+	@return ApiApiV1StreamsReceiveGetRequest
 */
-func (a *DefaultAPIService) ReceiveOutput(ctx context.Context) ApiReceiveOutputRequest {
-	return ApiReceiveOutputRequest{
+func (a *DefaultAPIService) ApiV1StreamsReceiveGet(ctx context.Context) ApiApiV1StreamsReceiveGetRequest {
+	return ApiApiV1StreamsReceiveGetRequest{
 		ApiService: a,
 		ctx:        ctx,
 	}
@@ -120,7 +115,7 @@ func (a *DefaultAPIService) ReceiveOutput(ctx context.Context) ApiReceiveOutputR
 // Execute executes the request
 //
 //	@return ReceiveResponse
-func (a *DefaultAPIService) ReceiveOutputExecute(r ApiReceiveOutputRequest) (*ReceiveResponse, *http.Response, error) {
+func (a *DefaultAPIService) ApiV1StreamsReceiveGetExecute(r ApiApiV1StreamsReceiveGetRequest) (*ReceiveResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
@@ -128,7 +123,7 @@ func (a *DefaultAPIService) ReceiveOutputExecute(r ApiReceiveOutputRequest) (*Re
 		localVarReturnValue *ReceiveResponse
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DefaultAPIService.ReceiveOutput")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DefaultAPIService.ApiV1StreamsReceiveGet")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
@@ -145,6 +140,9 @@ func (a *DefaultAPIService) ReceiveOutputExecute(r ApiReceiveOutputRequest) (*Re
 	parameterAddToHeaderOrQuery(localVarQueryParams, "streamId", r.streamId, "form", "")
 	if r.timeoutSeconds != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "timeoutSeconds", r.timeoutSeconds, "form", "")
+	} else {
+		var defaultValue int32 = 30
+		r.timeoutSeconds = &defaultValue
 	}
 	if r.readFromDB != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "readFromDB", r.readFromDB, "form", "")
@@ -206,47 +204,48 @@ func (a *DefaultAPIService) ReceiveOutputExecute(r ApiReceiveOutputRequest) (*Re
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiSendOutputRequest struct {
+type ApiApiV1StreamsSendPostRequest struct {
 	ctx         context.Context
 	ApiService  DefaultAPI
 	sendRequest *SendRequest
 }
 
-func (r ApiSendOutputRequest) SendRequest(sendRequest SendRequest) ApiSendOutputRequest {
+func (r ApiApiV1StreamsSendPostRequest) SendRequest(sendRequest SendRequest) ApiApiV1StreamsSendPostRequest {
 	r.sendRequest = &sendRequest
 	return r
 }
 
-func (r ApiSendOutputRequest) Execute() (*http.Response, error) {
-	return r.ApiService.SendOutputExecute(r)
+func (r ApiApiV1StreamsSendPostRequest) Execute() (*http.Response, error) {
+	return r.ApiService.ApiV1StreamsSendPostExecute(r)
 }
 
 /*
-SendOutput Send output to waiting clients
+ApiV1StreamsSendPost Publish message to a stream/topic
 
-Applications use this endpoint to send output to clients waiting for a specific streamID.
-Uses long polling - waits for matching clients within the configured timeout period.
-Returns 424 if no client is waiting within timeout.
+Publishers use this endpoint to send messages to a specific streamId (topic).
+
+The message can be delivered in-memory for real-time consumption and/or
+persisted to database for replay. Topics are created automatically on first message.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@return ApiSendOutputRequest
+	@return ApiApiV1StreamsSendPostRequest
 */
-func (a *DefaultAPIService) SendOutput(ctx context.Context) ApiSendOutputRequest {
-	return ApiSendOutputRequest{
+func (a *DefaultAPIService) ApiV1StreamsSendPost(ctx context.Context) ApiApiV1StreamsSendPostRequest {
+	return ApiApiV1StreamsSendPostRequest{
 		ApiService: a,
 		ctx:        ctx,
 	}
 }
 
 // Execute executes the request
-func (a *DefaultAPIService) SendOutputExecute(r ApiSendOutputRequest) (*http.Response, error) {
+func (a *DefaultAPIService) ApiV1StreamsSendPostExecute(r ApiApiV1StreamsSendPostRequest) (*http.Response, error) {
 	var (
 		localVarHTTPMethod = http.MethodPost
 		localVarPostBody   interface{}
 		formFiles          []formFile
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DefaultAPIService.SendOutput")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DefaultAPIService.ApiV1StreamsSendPost")
 	if err != nil {
 		return nil, &GenericOpenAPIError{error: err.Error()}
 	}

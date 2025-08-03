@@ -6,9 +6,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// OutputType is the type of the output data
-// a shortcut for the output data type
-type OutputType = map[string]interface{}
+// MessageType is the type of the message data
+// a shortcut for the message data type
+type MessageType = interface{}
 
 type ErrorType int
 
@@ -23,6 +23,29 @@ const (
 	ErrorTypeStreamEmpty
 )
 
+func (e ErrorType) String() string {
+	switch e {
+	case ErrorTypeNone:
+		return "None"
+	case ErrorTypeUnknown:
+		return "Unknown"
+	case ErrorTypeInvalidRequest:
+		return "InvalidRequest"
+	case ErrorTypeCircularBufferIterationLimit:
+		return "CircularBufferIterationLimit"
+	case ErrorTypeWaitingTimeout:
+		return "WaitingTimeout"
+	case ErrorTypeStreamStopped:
+		return "StreamStopped"
+	case ErrorTypeStreamFull:
+		return "StreamFull"
+	case ErrorTypeStreamEmpty:
+		return "StreamEmpty"
+	default:
+		return "UnknownErrorType"
+	}
+}
+
 type MatchingEngine interface {
 	Start() error
 	Send(*InternalSendRequest) (errorType ErrorType, err error)
@@ -31,8 +54,8 @@ type MatchingEngine interface {
 }
 
 type InMemoeryStream interface {
-	Send(output OutputType, outputUuid uuid.UUID, timestamp time.Time, blockingWriteTimeoutSeconds int) (errorType ErrorType, err error)
-	Receive(timeoutSeconds int) (output *InternalReceiveResponse, errorType ErrorType, err error)
+	Send(message MessageType, messageUuid uuid.UUID, timestamp time.Time, blockingSendTimeoutSeconds int) (errorType ErrorType, err error)
+	Receive(timeoutSeconds int) (message *InternalReceiveResponse, errorType ErrorType, err error)
 	Stop() error
 }
 
@@ -46,19 +69,19 @@ type InternalReceiveRequest struct {
 }
 
 type InternalReceiveResponse struct {
-	// Unique identifier for the output
-	OutputUuid uuid.UUID
-	// The received output data as JSON object
-	Output OutputType
-	// When the output was generated
+	// Unique identifier for the message
+	MessageUuid uuid.UUID
+	// The received message data as JSON object
+	Message MessageType
+	// When the message was generated
 	Timestamp time.Time
 }
 
 type InternalSendRequest struct {
-	OutputUuid                  string
-	StreamId                    string
-	Output                      OutputType
-	Timestamp                   time.Time
-	InMemoryStreamSize          int
-	BlockingWriteTimeoutSeconds int
+	MessageUuid                string
+	StreamId                   string
+	Message                    MessageType
+	Timestamp                  time.Time
+	InMemoryStreamSize         int
+	BlockingSendTimeoutSeconds int
 }

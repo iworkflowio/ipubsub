@@ -4,7 +4,7 @@ gen-all: api-code-gen-server # api-code-gen-ts api-code-gen-py
 
 api-code-gen-server: #generate/refresh go server code for api.yaml, do this after update the api.yaml
 	rm -Rf ./server/genapi ; true
-	java -jar openapi-generator-cli-7.14.0.jar generate -i api.yaml -g go -o server/genapi/ -p packageName=genapi -p generateInterfaces=true -p isGoSubmodule=false --git-user-id iworkflowio --git-repo-id async-output-service
+	java -jar openapi-generator-cli-7.14.0.jar generate -i api.yaml -g go -o server/genapi/ -p packageName=genapi -p generateInterfaces=true -p isGoSubmodule=false --git-user-id iworkflowio --git-repo-id ipubsub
 	gofmt -s -w server/genapi;
 	rm -Rf ./server/genapi/go*; 
 	rm -Rf ./server/genapi/git_push.sh;

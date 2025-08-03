@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/hashicorp/memberlist"
-	"github.com/iworkflowio/async-output-service/config"
-	"github.com/iworkflowio/async-output-service/service/log"
-	"github.com/iworkflowio/async-output-service/service/log/tag"
+	"github.com/iworkflowio/ipubsub/config"
+	"github.com/iworkflowio/ipubsub/service/log"
+	"github.com/iworkflowio/ipubsub/service/log/tag"
 )
 
 // MembershipImpl implements NodeMembership using HashiCorp's memberlist

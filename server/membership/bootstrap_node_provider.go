@@ -3,7 +3,7 @@ package membership
 import (
 	"fmt"
 
-	"github.com/iworkflowio/async-output-service/config"
+	"github.com/iworkflowio/ipubsub/config"
 )
 
 func NewBootstrapNodeProvider(config *config.Config) *BootstrapNodeProvider {

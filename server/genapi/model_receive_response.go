@@ -1,7 +1,7 @@
 /*
-Async Output Service API
+iPubSub API
 
-An API for real-time matching of asynchronous output generation with client consumption.  The service acts as a matching intermediary between applications generating outputs  asynchronously and clients waiting to receive specific outputs in real-time.  **Core Concept**: Stream-based matching using streamID to connect senders with receivers.  **Phase 1**: Real-time in-memory matching with long polling **Phase 2**: Persistent storage with replay capability
+A lightweight, scalable pub-sub service API that supports both real-time message delivery and persistent storage.  iPubSub enables publishers to send messages to lightweight topics/streams, and subscribers to receive messages  using efficient long-polling. Topics are created dynamically on first message without explicit provisioning.  **Core Features:** - **Real-time Matching**: Publishers and subscribers are matched in real-time using long polling - **Dynamic Topics**: Lightweight topics/streams created automatically on first message - **Dual Storage**: Messages can be delivered in-memory for real-time consumption and/or persisted for replay - **Per-message TTL**: Individual message expiration (not stream-level) - **Horizontal Scaling**: Distributed hash ring for stream routing across nodes
 
 API version: 1.0.0
 */
@@ -22,10 +22,10 @@ var _ MappedNullable = &ReceiveResponse{}
 
 // ReceiveResponse struct for ReceiveResponse
 type ReceiveResponse struct {
-	// Unique identifier for the output
-	OutputUuid *string `json:"outputUuid,omitempty"`
-	// The received output data as JSON object
-	Output map[string]interface{} `json:"output"`
+	// Unique identifier for the message
+	MessageUuid *string `json:"messageUuid,omitempty"`
+	// The received message data (can be any JSON value - object, array, string, number, boolean, or null)
+	Message interface{} `json:"message"`
 	// When the output was generated
 	Timestamp time.Time `json:"timestamp"`
 	// Token for resuming from next position, only applicable when writeToDB is true.
@@ -38,9 +38,9 @@ type _ReceiveResponse ReceiveResponse
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewReceiveResponse(output map[string]interface{}, timestamp time.Time) *ReceiveResponse {
+func NewReceiveResponse(message interface{}, timestamp time.Time) *ReceiveResponse {
 	this := ReceiveResponse{}
-	this.Output = output
+	this.Message = message
 	this.Timestamp = timestamp
 	return &this
 }
@@ -53,60 +53,62 @@ func NewReceiveResponseWithDefaults() *ReceiveResponse {
 	return &this
 }
 
-// GetOutputUuid returns the OutputUuid field value if set, zero value otherwise.
-func (o *ReceiveResponse) GetOutputUuid() string {
-	if o == nil || IsNil(o.OutputUuid) {
+// GetMessageUuid returns the MessageUuid field value if set, zero value otherwise.
+func (o *ReceiveResponse) GetMessageUuid() string {
+	if o == nil || IsNil(o.MessageUuid) {
 		var ret string
 		return ret
 	}
-	return *o.OutputUuid
+	return *o.MessageUuid
 }
 
-// GetOutputUuidOk returns a tuple with the OutputUuid field value if set, nil otherwise
+// GetMessageUuidOk returns a tuple with the MessageUuid field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *ReceiveResponse) GetOutputUuidOk() (*string, bool) {
-	if o == nil || IsNil(o.OutputUuid) {
+func (o *ReceiveResponse) GetMessageUuidOk() (*string, bool) {
+	if o == nil || IsNil(o.MessageUuid) {
 		return nil, false
 	}
-	return o.OutputUuid, true
+	return o.MessageUuid, true
 }
 
-// HasOutputUuid returns a boolean if a field has been set.
-func (o *ReceiveResponse) HasOutputUuid() bool {
-	if o != nil && !IsNil(o.OutputUuid) {
+// HasMessageUuid returns a boolean if a field has been set.
+func (o *ReceiveResponse) HasMessageUuid() bool {
+	if o != nil && !IsNil(o.MessageUuid) {
 		return true
 	}
 
 	return false
 }
 
-// SetOutputUuid gets a reference to the given string and assigns it to the OutputUuid field.
-func (o *ReceiveResponse) SetOutputUuid(v string) {
-	o.OutputUuid = &v
+// SetMessageUuid gets a reference to the given string and assigns it to the MessageUuid field.
+func (o *ReceiveResponse) SetMessageUuid(v string) {
+	o.MessageUuid = &v
 }
 
-// GetOutput returns the Output field value
-func (o *ReceiveResponse) GetOutput() map[string]interface{} {
+// GetMessage returns the Message field value
+// If the value is explicit nil, the zero value for interface{} will be returned
+func (o *ReceiveResponse) GetMessage() interface{} {
 	if o == nil {
-		var ret map[string]interface{}
+		var ret interface{}
 		return ret
 	}
 
-	return o.Output
+	return o.Message
 }
 
-// GetOutputOk returns a tuple with the Output field value
+// GetMessageOk returns a tuple with the Message field value
 // and a boolean to check if the value has been set.
-func (o *ReceiveResponse) GetOutputOk() (map[string]interface{}, bool) {
-	if o == nil {
-		return map[string]interface{}{}, false
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *ReceiveResponse) GetMessageOk() (*interface{}, bool) {
+	if o == nil || IsNil(o.Message) {
+		return nil, false
 	}
-	return o.Output, true
+	return &o.Message, true
 }
 
-// SetOutput sets field value
-func (o *ReceiveResponse) SetOutput(v map[string]interface{}) {
-	o.Output = v
+// SetMessage sets field value
+func (o *ReceiveResponse) SetMessage(v interface{}) {
+	o.Message = v
 }
 
 // GetTimestamp returns the Timestamp field value
@@ -175,10 +177,12 @@ func (o ReceiveResponse) MarshalJSON() ([]byte, error) {
 
 func (o ReceiveResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	if !IsNil(o.OutputUuid) {
-		toSerialize["outputUuid"] = o.OutputUuid
+	if !IsNil(o.MessageUuid) {
+		toSerialize["messageUuid"] = o.MessageUuid
 	}
-	toSerialize["output"] = o.Output
+	if o.Message != nil {
+		toSerialize["message"] = o.Message
+	}
 	toSerialize["timestamp"] = o.Timestamp
 	if !IsNil(o.DbResumeToken) {
 		toSerialize["dbResumeToken"] = o.DbResumeToken
@@ -191,7 +195,7 @@ func (o *ReceiveResponse) UnmarshalJSON(data []byte) (err error) {
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
-		"output",
+		"message",
 		"timestamp",
 	}
 

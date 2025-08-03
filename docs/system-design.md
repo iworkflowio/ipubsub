@@ -1,8 +1,8 @@
-# Async Output Service - System Design
+# iPubSub - System Design
 
 ## 1. Overview
 
-The Async Output Service is designed as a distributed system that enables real-time matching between applications generating outputs asynchronously and clients waiting to receive specific outputs. The system uses a gossip-based clustering approach with consistent hashing for horizontal scalability and fault tolerance.
+iPubSub is designed as a distributed system that enables real-time matching between applications generating messages asynchronously and clients waiting to receive specific messages. The system uses a gossip-based clustering approach with consistent hashing for horizontal scalability and fault tolerance.
 
 **Inspiration**: This design is similar to [Temporal's matching service architecture](https://github.com/temporalio/temporal/blob/main/docs/architecture/matching-service.md), which provides proven patterns for distributed stream matching at scale.
 
@@ -94,7 +94,7 @@ sequenceDiagram
     Sender->>NodeB: POST /streams/send {streamId: "abc123"}
     NodeB->>MatchEngine: Check for waiting receivers
     MatchEngine-->>NodeB: Found matching receiver
-    NodeB-->>Receiver: 200 + output data
+    NodeB-->>Receiver: 200 + message data
     NodeB-->>Sender: 200 + delivery confirmation
 ```
 
@@ -227,12 +227,12 @@ type PollContext struct {
 ### 4.6 In-Memory Circular Buffer Storage
 
 #### **Overview**
-When `writeToDB: false`, the service uses circular buffers to store outputs in memory. A circular buffer is a fixed-size data structure that efficiently handles continuous data streams by overwriting the oldest entries when the buffer is full.
+When `writeToDB: false`, the service uses circular buffers to store messages in memory. A circular buffer is a fixed-size data structure that efficiently handles continuous data streams by overwriting the oldest entries when the buffer is full.
 
 #### **Buffer Structure**
 ```go
 type CircularBuffer struct {
-    data     []OutputEntry
+    data     []MessageEntry
     head     int           // Write position
     tail     int           // Read position  
     size     int           // Buffer capacity
@@ -240,10 +240,10 @@ type CircularBuffer struct {
     mu       sync.RWMutex  // Thread safety
 }
 
-type OutputEntry struct {
-    OutputUUID string
-    Output     interface{}
-    Timestamp  time.Time
+type MessageEntry struct {
+    MessageUUID string
+    Message     interface{}
+    Timestamp   time.Time
 }
 ```
 
@@ -251,7 +251,7 @@ type OutputEntry struct {
 
 **Write Operation (O(1))**:
 ```go
-func (cb *CircularBuffer) Write(entry OutputEntry) {
+func (cb *CircularBuffer) Write(entry MessageEntry) {
     cb.mu.Lock()
     defer cb.mu.Unlock()
     
@@ -269,12 +269,12 @@ func (cb *CircularBuffer) Write(entry OutputEntry) {
 
 **Read Operation (O(1))**:
 ```go
-func (cb *CircularBuffer) Read() (OutputEntry, bool) {
+func (cb *CircularBuffer) Read() (MessageEntry, bool) {
     cb.mu.RLock()
     defer cb.mu.RUnlock()
     
     if cb.count == 0 {
-        return OutputEntry{}, false
+        return MessageEntry{}, false
     }
     
     entry := cb.data[cb.tail]
@@ -293,12 +293,12 @@ Initial State (empty):
 [_, _, _, _]
  ^head/tail
 
-After sending 3 outputs:
+After sending 3 messages:
 [A, B, C, _]
           ^head
  ^tail
 
-After sending 2 more outputs (buffer full + 1 overwrite):
+After sending 2 more messages (buffer full + 1 overwrite):
 [E, B, C, D]  
    ^head
     ^tail (B is now the oldest available)
@@ -315,7 +315,7 @@ Consumer receives: B, C, D, E (in order)
 - **Overwrite Semantics**: Automatically handles memory pressure
 
 **Trade-offs**:
-- **Data Loss**: Old outputs are lost when buffer overflows
+- **Data Loss**: Old messages are lost when buffer overflows
 - **No Persistence**: Data lost on service restart
 - **Size Immutability**: Buffer size only configurable at stream creation
 
@@ -350,7 +350,7 @@ type ConsumerState struct {
 
 #### **Performance Characteristics**
 - **Write Throughput**: ~10M ops/sec (single-threaded)
-- **Memory Usage**: `sizeof(OutputEntry) × buffer_size`
+- **Memory Usage**: `sizeof(MessageEntry) × buffer_size`
 - **Latency**: Sub-microsecond for cache-resident data
 - **Concurrency**: Read-write locks for thread safety
 
@@ -384,8 +384,8 @@ type ConsumerState struct {
 #### **Storage Architecture**
 ```go
 type StreamStorage interface {
-    Store(streamId, outputUuid string, output interface{}, ttl time.Duration) error
-    Read(streamId string, resumeToken string, limit int) ([]*Output, string, error)
+    Store(streamId, messageUuid string, message interface{}, ttl time.Duration) error
+    Read(streamId string, resumeToken string, limit int) ([]*Message, string, error)
     Delete(streamId string, olderThan time.Time) error
 }
 ```
@@ -477,7 +477,7 @@ func (r *RequestRouter) forwardWithRetry(targetNode *Node, request *Request) (*R
 #### **Cluster Configuration**
 ```yaml
 cluster:
-  name: "async-output-cluster"
+  name: "ipubsub-cluster"
   gossip_port: 7946
   http_port: 8080
   bootstrap_nodes:
@@ -503,4 +503,4 @@ hash_ring:
 
 ---
 
-*This system design provides a scalable, fault-tolerant foundation for the async output service, drawing inspiration from proven distributed systems like Temporal while optimizing for our specific real-time matching use case.* 
+*This system design provides a scalable, fault-tolerant foundation for iPubSub, drawing inspiration from proven distributed systems like Temporal while optimizing for our specific real-time matching use case.* 

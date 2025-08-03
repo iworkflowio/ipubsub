@@ -1,13 +1,85 @@
-### send test
+### iPubSub Test 1: Object message (map[string]interface{})
 POST http://localhost:16681/api/v1/streams/send
 Content-Type: application/json
 
 {
-  "streamId": "test-stream",
-  "outputUuid": "3b8f50e0-30f7-4a89-b07a-11d86059e8a9",
-  "output": {
-    "message": "test string output",
-    "type": "test",
-    "timestamp": "2025-08-02T01:20:18Z"
+  "streamId": "user-notifications",
+  "messageUuid": "3b8f50e0-30f7-4a89-b07a-11d86059e8a9",
+  "message": {
+    "type": "welcome",
+    "userId": 123,
+    "timestamp": "2025-08-03T10:32:18Z"
   }
 }
+
+### iPubSub Test 1b: Blocking send with timeout
+POST http://localhost:16681/api/v1/streams/send
+Content-Type: application/json
+
+{
+  "streamId": "high-priority-alerts",
+  "messageUuid": "4a8f60e0-40f7-5a89-c07a-22d86059e8b1",
+  "message": {
+    "type": "critical_alert",
+    "severity": "high",
+    "message": "System overload detected"
+  },
+  "inMemoryStreamSize": 10,
+  "blockingSendTimeoutSeconds": 5
+}
+
+### iPubSub Test 2: String message
+POST http://localhost:16681/api/v1/streams/send
+Content-Type: application/json
+
+{
+  "streamId": "chat-room-general",
+  "messageUuid": "4c9f60e0-40f7-5a89-c07a-22d86059e8b0",
+  "message": "Hello everyone! This is a simple string message."
+}
+
+### iPubSub Test 3: Number message
+POST http://localhost:16681/api/v1/streams/send
+Content-Type: application/json
+
+{
+  "streamId": "sensor-temperature",
+  "messageUuid": "5d8f70e0-50f7-6a89-d07a-33d86059e8c1",
+  "message": 23.5
+}
+
+### iPubSub Test 4: Boolean message
+POST http://localhost:16681/api/v1/streams/send
+Content-Type: application/json
+
+{
+  "streamId": "system-alerts",
+  "messageUuid": "6e9f80e0-60f7-7a89-e07a-44d86059e8d2",
+  "message": true
+}
+
+### iPubSub Test 5: Array message
+POST http://localhost:16681/api/v1/streams/send
+Content-Type: application/json
+
+{
+  "streamId": "event-log",
+  "messageUuid": "7f0f90e0-70f7-8a89-f07a-55d86059e8e3",
+  "message": ["event1", "event2", {"nested": "data"}, 123, true]
+}
+
+### iPubSub Test 6: Null message
+POST http://localhost:16681/api/v1/streams/send
+Content-Type: application/json
+
+{
+  "streamId": "heartbeat",
+  "messageUuid": "8f1fa0e0-80f7-9a89-007a-66d86059e8f4",
+  "message": null
+}
+
+### iPubSub Test 7: Receive from user notifications
+GET http://localhost:16681/api/v1/streams/receive?streamId=user-notifications&timeoutSeconds=10
+
+### iPubSub Test 8: Receive from chat room
+GET http://localhost:16681/api/v1/streams/receive?streamId=chat-room-general&timeoutSeconds=10

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/iworkflowio/async-output-service/config"
-	"github.com/iworkflowio/async-output-service/service/log"
-	"github.com/iworkflowio/async-output-service/service/log/loggerimpl"
+	"github.com/iworkflowio/ipubsub/config"
+	"github.com/iworkflowio/ipubsub/service/log"
+	"github.com/iworkflowio/ipubsub/service/log/loggerimpl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

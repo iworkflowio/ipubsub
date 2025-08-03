@@ -21,7 +21,7 @@
 package log
 
 import (
-	"github.com/iworkflowio/async-output-service/service/log/tag"
+	"github.com/iworkflowio/ipubsub/service/log/tag"
 )
 
 // Logger is our abstraction for logging

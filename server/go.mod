@@ -1,4 +1,4 @@
-module github.com/iworkflowio/async-output-service
+module github.com/iworkflowio/ipubsub
 
 go 1.23.0
 

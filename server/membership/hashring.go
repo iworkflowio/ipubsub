@@ -7,8 +7,8 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/iworkflowio/async-output-service/service/log"
-	"github.com/iworkflowio/async-output-service/service/log/tag"
+	"github.com/iworkflowio/ipubsub/service/log"
+	"github.com/iworkflowio/ipubsub/service/log/tag"
 )
 
 type Hashring interface {

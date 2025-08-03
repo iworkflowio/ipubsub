@@ -1,30 +1,32 @@
 openapi: 3.0.0
 info:
-  title: Async Output Service API
+  title: iPubSub API
   description: |
-    An API for real-time matching of asynchronous output generation with client consumption.
+    A lightweight, scalable pub-sub service API that supports both real-time message delivery and persistent storage.
     
-    The service acts as a matching intermediary between applications generating outputs 
-    asynchronously and clients waiting to receive specific outputs in real-time.
+    iPubSub enables publishers to send messages to lightweight topics/streams, and subscribers to receive messages 
+    using efficient long-polling. Topics are created dynamically on first message without explicit provisioning.
     
-    **Core Concept**: Stream-based matching using streamID to connect senders with receivers.
+    **Core Features:**
+    - **Real-time Matching**: Publishers and subscribers are matched in real-time using long polling
+    - **Dynamic Topics**: Lightweight topics/streams created automatically on first message
+    - **Dual Storage**: Messages can be delivered in-memory for real-time consumption and/or persisted for replay
+    - **Per-message TTL**: Individual message expiration (not stream-level)
+    - **Horizontal Scaling**: Distributed hash ring for stream routing across nodes
     
-    **Phase 1**: Real-time in-memory matching with long polling
-    **Phase 2**: Persistent storage with replay capability
-  version: "1.0.0"
-  contact:
-    name: Async Output Service Team
-
-
+  version: 1.0.0
+  
 paths:
   /api/v1/streams/send:
     post:
-      summary: Send output to waiting clients 
+      summary: Publish message to a stream/topic
       description: |
-        Applications use this endpoint to send output to clients waiting for a specific streamID.
-        Uses long polling - waits for matching clients within the configured timeout period.
-        Returns 424 if no client is waiting within timeout.
-      operationId: sendOutput
+        Publishers use this endpoint to send messages to a specific streamId (topic).
+        
+        The message can be delivered in-memory for real-time consumption and/or 
+        persisted to database for replay. Topics are created automatically on first message.
+        
+
       requestBody:
         required: true
         content:
@@ -32,149 +34,143 @@ paths:
             schema:
               $ref: '#/components/schemas/SendRequest'
             examples:
-                inMemoryOutput:
-                 summary: Send output
-                 value:
-                   outputUuid: "123e4567-e89b-12d3-a456-426614174000"
-                   streamId: "ai-agent-123"
-                   output: {"message": "Processing step 1 completed", "step": 1}
-                   inMemoryStreamSize: 1000
-                dbOutput:
-                  summary: Send output to database
-                  value:
-                    outputUuid: "123e4567-e89b-12d3-a456-426614174000"
-                    streamId: "ai-agent-123"
-                    output: {"message": "Processing step 1 completed", "step": 1}
-                    writeToDB: true
-                    dbTTLSeconds: 3600
+              inMemoryMessage:
+                summary: Real-time in-memory message
+                value:
+                  streamId: "user-notifications"
+                  messageUuid: "123e4567-e89b-12d3-a456-426614174000"
+                  message: {"type": "welcome", "userId": 123}
+                  inMemoryStreamSize: 100
+              persistentMessage:
+                summary: Persistent message with TTL  
+                value:
+                  streamId: "chat-messages"
+                  messageUuid: "987f6543-e21c-43d5-b789-012345678901"
+                  message: {"from": "user123", "text": "Hello World!"}
+                  writeToDB: true
+                  dbTTLSeconds: 86400
       responses:
         '200':
-          description: Output successfully delivered to waiting client
-        '400':
-          description: Bad Request - Invalid input parameters
-        '500':
-          description: Internal Server Error
-
-  /api/v1/streams/receive:
-    get:
-      summary: Receive output for a specific stream
-      description: |
-        Clients use this endpoint to receive output for a specific streamID.
-        Uses long polling - waits for matching output within the configured timeout period.
-        Returns 424 if no output arrives within timeout.
-        
-        **Phase 1**: Receives real-time matched output
-        **Phase 2**: Supports resumeToken for historical replay
-      operationId: receiveOutput
-      parameters:
-        - name: streamId
-          in: query
-          required: true
-          description: The stream identifier to receive output for
-          schema:
-            type: string
-            example: "ai-agent-123"
-        - name: timeoutSeconds
-          in: query
-          required: false
-          description: Maximum time to wait for output (default is 30s)
-          schema:
-            type: integer
-            example: 60
-        - name: readFromDB
-          in: query
-          required: false
-          description: Whether to read from the database. By default, this is false.
-          schema:
-            type: boolean
-            example: true
-        - name: dbResumeToken
-          in: query
-          required: false
-          description: Resume token for reading from specific position, only applicable when readFromDB is true. Can be empty which will read from the beginning.
-          schema:
-            type: string
-            example: "abc123def456"
-      responses:
-        '200':
-          description: Output received successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReceiveResponse'
-              examples:
-                  inMemoryResponse:
-                   summary: Real-time output
-                   value:
-                     outputUuid: "123e4567-e89b-12d3-a456-426614174000"
-                     output: {"message": "Processing step 1 completed", "step": 1}
-                     timestamp: "2024-01-01T10:00:00Z"
-                  dbResponse:
-                   summary: With resume token
-                   value:
-                     outputUuid: "123e4567-e89b-12d3-a456-426614174000"
-                     output: {"status": "completed", "result": "success"}
-                     timestamp: "2024-01-01T10:00:00Z"
-                     dbResumeToken: "def456ghi789"
+          description: Message published successfully
         '424':
-          description: Failed Dependency - No output available (timeout exceeded)
+          description: Failed Dependency - No active subscribers for blockingSend to memory stream (timeout exceeded)
         '400':
           description: Bad Request - Invalid parameters
         '500':
           description: Internal Server Error
 
+  /api/v1/streams/receive:
+    get:
+      summary: Subscribe to messages from a stream/topic
+      description: |
+        Subscribers use this endpoint to receive messages for a specific streamId (topic).
+        Uses long polling - waits for messages within the configured timeout period.
+        Returns 424 if no messages arrive within timeout.
+        
+      parameters:
+        - name: streamId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Unique identifier for the stream/topic to subscribe to
+          example: "user-notifications"
+        - name: timeoutSeconds
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 30
+          description: Maximum time to wait for messages (seconds)
+          example: 30
+        - name: readFromDB
+          in: query
+          required: false
+          schema:
+            type: boolean
 
+          description: Whether to read from persistent storage (Phase 2)
+        - name: dbResumeToken
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Token for resuming from specific position (Phase 2)
+          example: "abc123def456"
+      responses:
+        '200':
+          description: Message received successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiveResponse'
+              examples:
+                inMemoryResponse:
+                  value:
+                    messageUuid: "123e4567-e89b-12d3-a456-426614174000"
+                    message: {"type": "welcome", "userId": 123}
+                    timestamp: "2024-01-01T10:00:00Z"
+                dbResponse:
+                  value:
+                    messageUuid: "123e4567-e89b-12d3-a456-426614174000"
+                    message: {"status": "completed", "result": "success"}
+                    timestamp: "2024-01-01T10:00:00Z"
+                    dbResumeToken: "def456ghi789"
+        '424':
+          description: Failed Dependency - No messages available (timeout exceeded)
+        '400':
+          description: Bad Request - Invalid parameters
+        '500':
+          description: Internal Server Error
 
 components:
   schemas:
     SendRequest:
       type: object
       required:
-        - outputUuid
-        - output
+        - messageUuid
+        - message
         - streamId
       properties:
-        outputUuid:
+        messageUuid:
           type: string
-          description: Unique identifier for the output
+          description: Unique identifier for the message
           example: "123e4567-e89b-12d3-a456-426614174000"
         streamId:
           type: string
-          description: Unique identifier for the output stream
-          example: "ai-agent-123"
+          description: Unique identifier for the stream/topic
+          example: "user-notifications"
         inMemoryStreamSize:
           type: integer
-          description: The size of the in-memory stream. Only used when writeToDB is false. Default is 100. It will be used at the first request of send API call for the stream, until the async output service instance is stopped. The stream will be a circular buffer unless using blockingWriteTimeoutSeconds. Circular buffer means the oldest output will be deleted when the stream is full. If using blockingWriteTimeoutSeconds, the stream will not delete the oldest output when the stream is full. In certain cases, setting this to zero, and using blockingWriteTimeoutSeconds, will make the stream behave like a sync match queue(no data loss but requires client to retry to wait for the stream to be available to write to).
+          description: The size of the in-memory stream. Only used when writeToDB is false. Default is 100. It will be used at the first request of send API call for the stream, until the iPubSub service instance is stopped. The stream will be a circular buffer unless using blockingSendTimeoutSeconds. Circular buffer means the oldest message will be deleted when the stream is full. If using blockingSendTimeoutSeconds, the stream will not delete the oldest message when the stream is full. In certain cases, setting this to zero, and using blockingSendTimeoutSeconds, will make the stream behave like a sync match queue(no data loss but requires client to retry to wait for the stream to be available to send to).
           example: 100
-        blockingWriteTimeoutSeconds:
+        blockingSendTimeoutSeconds:
           type: integer
-          description: The timeout in seconds for waiting for the in-memory stream to be available to write to. Using this means the stream is not a circular buffer(not delete the oldest output when the stream is full). It will return 424 error if the stream is full after waiting. Using this with inMemoryStreamSize set to zero will make the stream behave like a sync match queue(no data loss but requires client to retry to wait for the stream to be available to write to).
+          description: The timeout in seconds for waiting for the in-memory stream to be available to send to. Using this means the stream is not a circular buffer(not delete the oldest message when the stream is full). It will return 424 error if the stream is full after waiting. Using this with inMemoryStreamSize set to zero will make the stream behave like a sync match queue(no data loss but requires client to retry to wait for the stream to be available to send to).
           example: 30
-        output:
-          type: object
-          description: The output data to send as JSON object
-          example: {"message": "Processing step 1 completed", "step": 1}
+        message:
+          description: The message data to send (can be any JSON value - object, array, string, number, boolean, or null)
+          example: {"type": "welcome", "userId": 123}
         writeToDB:
           type: boolean
           description: Whether to write to the database. By default, this is false. 
         dbTTLSeconds:
           type: integer
-          description: The TTL in seconds for the output in the database. Only used when writeToDB is true. Default is 24 * 60 * 60 (24 hours).
+          description: The TTL in seconds for the message in the database. Only used when writeToDB is true. Default is 24 * 60 * 60 (24 hours).
 
     ReceiveResponse:
       type: object
       required:
-        - output
+        - message
         - timestamp
       properties:
-        outputUuid:
+        messageUuid:
           type: string
-          description: Unique identifier for the output
+          description: Unique identifier for the message
           example: "123e4567-e89b-12d3-a456-426614174000"
-        output:
-          type: object
-          description: The received output data as JSON object
-          example: {"message": "Processing step 1 completed", "step": 1}
+        message:
+          description: The received message data (can be any JSON value - object, array, string, number, boolean, or null)
+          example: {"type": "welcome", "userId": 123}
         timestamp:
           type: string
           format: date-time
@@ -183,7 +179,7 @@ components:
         dbResumeToken:
           type: string
           description: Token for resuming from next position, only applicable when writeToDB is true.
-          example: "def456ghi789"
+          example: "abc123def456"
 
 
 

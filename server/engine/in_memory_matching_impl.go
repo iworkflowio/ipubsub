@@ -122,16 +122,16 @@ func (i *InMemoryMatchingEngine) Send(req *InternalSendRequest) (errorType Error
 	}
 
 	// Now send to the stream (no locks needed, stream handles its own concurrency)
-	outputUuid, err := uuid.Parse(req.OutputUuid)
+	messageUuid, err := uuid.Parse(req.MessageUuid)
 	if err != nil {
 		return ErrorTypeInvalidRequest, err
 	}
 
 	return stream.Send(
-		req.Output,
-		outputUuid,
+		req.Message,
+		messageUuid,
 		time.Now(),
-		req.BlockingWriteTimeoutSeconds,
+		req.BlockingSendTimeoutSeconds,
 	)
 }
 

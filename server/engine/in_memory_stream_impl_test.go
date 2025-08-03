@@ -12,26 +12,26 @@ import (
 )
 
 func TestInMemoryStreamImpl_CircularBufferMode(t *testing.T) {
-	// Test circular buffer mode (default behavior when blockingWriteTimeoutSeconds <= 0)
+	// Test circular buffer mode (default behavior when blockingSendTimeoutSeconds <= 0)
 	stream := NewInMemoryStreamImpl(3) // Buffer size 3
 	defer stream.Stop()
 
 	t.Run("BasicSendReceive", func(t *testing.T) {
-		output1 := OutputType{"message": "test1", "step": 1}
+		message1 := map[string]interface{}{"message": "test1", "step": 1}
 		uuid1 := uuid.New()
 		timestamp1 := time.Now()
 
 		// Send should succeed
-		errorType, err := stream.Send(output1, uuid1, timestamp1, 0) // 0 = circular buffer mode
+		errorType, err := stream.Send(message1, uuid1, timestamp1, 0) // 0 = circular buffer mode
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
-		// Receive should get the output
+		// Receive should get the message
 		resp, errorType, err := stream.Receive(1)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
-		assert.Equal(t, uuid1, resp.OutputUuid)
-		assert.Equal(t, output1, resp.Output)
+		assert.Equal(t, uuid1, resp.MessageUuid)
+		assert.Equal(t, message1, resp.Message)
 		assert.Equal(t, timestamp1, resp.Timestamp)
 	})
 
@@ -41,7 +41,7 @@ func TestInMemoryStreamImpl_CircularBufferMode(t *testing.T) {
 		defer testStream.Stop()
 
 		// Fill the buffer to capacity (3)
-		outputs := []OutputType{
+		messages := []map[string]interface{}{
 			{"message": "msg1", "step": 1},
 			{"message": "msg2", "step": 2},
 			{"message": "msg3", "step": 3},
@@ -49,14 +49,14 @@ func TestInMemoryStreamImpl_CircularBufferMode(t *testing.T) {
 
 		// Send 3 messages to fill buffer
 		for i := 0; i < 3; i++ {
-			errorType, err := testStream.Send(outputs[i], uuid.New(), time.Now(), 0)
+			errorType, err := testStream.Send(messages[i], uuid.New(), time.Now(), 0)
 			require.NoError(t, err)
 			assert.Equal(t, ErrorTypeNone, errorType)
 		}
 
 		// Send 4th message, should overwrite the first one
-		output4 := OutputType{"message": "msg4", "step": 4}
-		errorType, err := testStream.Send(output4, uuid.New(), time.Now(), 0)
+		message4 := map[string]interface{}{"message": "msg4", "step": 4}
+		errorType, err := testStream.Send(message4, uuid.New(), time.Now(), 0)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
@@ -64,19 +64,19 @@ func TestInMemoryStreamImpl_CircularBufferMode(t *testing.T) {
 		resp, errorType, err := testStream.Receive(1)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
-		assert.Equal(t, outputs[1], resp.Output) // Should be msg2
+		assert.Equal(t, messages[1], resp.Message) // Should be msg2
 
 		// Second receive should get msg3
 		resp, errorType, err = testStream.Receive(1)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
-		assert.Equal(t, outputs[2], resp.Output) // Should be msg3
+		assert.Equal(t, messages[2], resp.Message) // Should be msg3
 
 		// Third receive should get msg4
 		resp, errorType, err = testStream.Receive(1)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
-		assert.Equal(t, output4, resp.Output) // Should be msg4
+		assert.Equal(t, message4, resp.Message) // Should be msg4
 
 		// Fourth receive should timeout (buffer empty)
 		resp, errorType, err = testStream.Receive(1)
@@ -107,21 +107,21 @@ func TestInMemoryStreamImpl_BlockingQueueMode(t *testing.T) {
 		stream := NewInMemoryStreamImpl(2) // Buffer size 2
 		defer stream.Stop()
 
-		output1 := OutputType{"message": "test1"}
+		message1 := map[string]interface{}{"message": "test1"}
 		uuid1 := uuid.New()
 		timestamp1 := time.Now()
 
 		// Send should succeed
-		errorType, err := stream.Send(output1, uuid1, timestamp1, 5) // 5 second timeout
+		errorType, err := stream.Send(message1, uuid1, timestamp1, 5) // 5 second timeout
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
-		// Receive should get the output
+		// Receive should get the message
 		resp, errorType, err := stream.Receive(1)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
-		assert.Equal(t, uuid1.String(), resp.OutputUuid.String())
-		assert.Equal(t, output1, resp.Output)
+		assert.Equal(t, uuid1.String(), resp.MessageUuid.String())
+		assert.Equal(t, message1, resp.Message)
 	})
 
 	t.Run("BlockingQueueTimeout", func(t *testing.T) {
@@ -130,16 +130,16 @@ func TestInMemoryStreamImpl_BlockingQueueMode(t *testing.T) {
 
 		// Fill the buffer to capacity (2)
 		for i := 0; i < 2; i++ {
-			output := OutputType{"message": "fill", "index": i}
-			errorType, err := stream.Send(output, uuid.New(), time.Now(), 5)
+			message := map[string]interface{}{"message": "fill", "index": i}
+			errorType, err := stream.Send(message, uuid.New(), time.Now(), 5)
 			require.NoError(t, err)
 			assert.Equal(t, ErrorTypeNone, errorType)
 		}
 
 		// Try to send another message with short timeout
-		output3 := OutputType{"message": "should timeout"}
+		message3 := map[string]interface{}{"message": "should timeout"}
 		start := time.Now()
-		errorType, err := stream.Send(output3, uuid.New(), time.Now(), 1) // 1 second timeout
+		errorType, err := stream.Send(message3, uuid.New(), time.Now(), 1) // 1 second timeout
 		duration := time.Since(start)
 
 		require.Error(t, err)
@@ -155,7 +155,7 @@ func TestInMemoryStreamImpl_BlockingQueueMode(t *testing.T) {
 		defer testStream.Stop()
 
 		// Fill the buffer
-		errorType, err := testStream.Send(OutputType{"message": "initial"}, uuid.New(), time.Now(), 0) // Use circular buffer to fill
+		errorType, err := testStream.Send(map[string]interface{}{"message": "initial"}, uuid.New(), time.Now(), 0) // Use circular buffer to fill
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
@@ -165,8 +165,8 @@ func TestInMemoryStreamImpl_BlockingQueueMode(t *testing.T) {
 			err       error
 		}, 1)
 		go func() {
-			output := OutputType{"message": "delayed"}
-			errorType, err := testStream.Send(output, uuid.New(), time.Now(), 5) // 5 second timeout
+			message := map[string]interface{}{"message": "delayed"}
+			errorType, err := testStream.Send(message, uuid.New(), time.Now(), 5) // 5 second timeout
 			sendComplete <- struct {
 				errorType ErrorType
 				err       error
@@ -192,14 +192,14 @@ func TestInMemoryStreamImpl_BlockingQueueMode(t *testing.T) {
 }
 
 func TestInMemoryStreamImpl_SyncMatchQueueMode(t *testing.T) {
-	// Test sync match queue mode (inMemoryStreamSize = 0 + blockingWriteTimeoutSeconds)
+	// Test sync match queue mode (inMemoryStreamSize = 0 + blockingSendTimeoutSeconds)
 	stream := NewInMemoryStreamImpl(0) // Zero capacity
 	defer stream.Stop()
 
 	t.Run("SyncMatchRequiresImmediateConsumer", func(t *testing.T) {
 		// Try to send without consumer - should timeout
-		output := OutputType{"message": "sync test"}
-		errorType, err := stream.Send(output, uuid.New(), time.Now(), 1) // 1 second timeout
+		message := map[string]interface{}{"message": "sync test"}
+		errorType, err := stream.Send(message, uuid.New(), time.Now(), 1) // 1 second timeout
 		require.Error(t, err)
 		assert.Equal(t, ErrorTypeWaitingTimeout, errorType)
 		assert.Contains(t, err.Error(), "timeout waiting for stream space")
@@ -227,11 +227,11 @@ func TestInMemoryStreamImpl_SyncMatchQueueMode(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		// Now send should succeed (zero capacity + active consumer)
-		output := OutputType{"message": "sync success"}
+		message := map[string]interface{}{"message": "sync success"}
 		uuid1 := uuid.New()
 
 		start := time.Now()
-		errorType, err := stream.Send(output, uuid1, time.Now(), 2) // 2 second timeout
+		errorType, err := stream.Send(message, uuid1, time.Now(), 2) // 2 second timeout
 		sendDuration := time.Since(start)
 
 		// With improved locking, this should work
@@ -244,8 +244,8 @@ func TestInMemoryStreamImpl_SyncMatchQueueMode(t *testing.T) {
 		case result := <-receiveResult:
 			require.NoError(t, result.err)
 			assert.Equal(t, ErrorTypeNone, result.errorType)
-			assert.Equal(t, uuid1, result.resp.OutputUuid)
-			assert.Equal(t, output, result.resp.Output)
+			assert.Equal(t, uuid1, result.resp.MessageUuid)
+			assert.Equal(t, message, result.resp.Message)
 		case <-time.After(3 * time.Second):
 			t.Fatal("Consumer should have received the message")
 		}
@@ -257,7 +257,7 @@ func TestInMemoryStreamImpl_Stop(t *testing.T) {
 		stream := NewInMemoryStreamImpl(5)
 
 		// Normal operation should work
-		errorType, err := stream.Send(OutputType{"message": "before stop"}, uuid.New(), time.Now(), 0)
+		errorType, err := stream.Send(map[string]interface{}{"message": "before stop"}, uuid.New(), time.Now(), 0)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
@@ -266,7 +266,7 @@ func TestInMemoryStreamImpl_Stop(t *testing.T) {
 		require.NoError(t, err)
 
 		// Operations after stop should fail
-		errorType, err = stream.Send(OutputType{"message": "after stop"}, uuid.New(), time.Now(), 0)
+		errorType, err = stream.Send(map[string]interface{}{"message": "after stop"}, uuid.New(), time.Now(), 0)
 		assert.Error(t, err)
 		assert.Equal(t, ErrorTypeStreamStopped, errorType)
 		assert.Equal(t, ErrStreamStopped, err)
@@ -281,7 +281,7 @@ func TestInMemoryStreamImpl_Stop(t *testing.T) {
 		testStream := NewInMemoryStreamImpl(1)
 
 		// Fill the buffer with circular buffer mode
-		errorType, err := testStream.Send(OutputType{"message": "fill"}, uuid.New(), time.Now(), 0)
+		errorType, err := testStream.Send(map[string]interface{}{"message": "fill"}, uuid.New(), time.Now(), 0)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
@@ -292,7 +292,7 @@ func TestInMemoryStreamImpl_Stop(t *testing.T) {
 		}, 1)
 		go func() {
 			// This will block because buffer is full and we're using blocking mode
-			errorType, err := testStream.Send(OutputType{"message": "blocking"}, uuid.New(), time.Now(), 10)
+			errorType, err := testStream.Send(map[string]interface{}{"message": "blocking"}, uuid.New(), time.Now(), 10)
 			sendResult <- struct {
 				errorType ErrorType
 				err       error
@@ -355,7 +355,7 @@ func TestInMemoryStreamImpl_EdgeCases(t *testing.T) {
 		defer stream.Stop()
 
 		// Zero capacity circular buffer should return error
-		errorType, err := stream.Send(OutputType{"message": "test"}, uuid.New(), time.Now(), 0)
+		errorType, err := stream.Send(map[string]interface{}{"message": "test"}, uuid.New(), time.Now(), 0)
 		assert.Error(t, err)
 		assert.Equal(t, ErrorTypeInvalidRequest, errorType)
 		assert.Contains(t, err.Error(), "zero capacity circular buffer is not allowed")
@@ -366,7 +366,7 @@ func TestInMemoryStreamImpl_EdgeCases(t *testing.T) {
 		defer stream.Stop()
 
 		// Negative timeout should use circular buffer mode
-		errorType, err := stream.Send(OutputType{"message": "test"}, uuid.New(), time.Now(), -1)
+		errorType, err := stream.Send(map[string]interface{}{"message": "test"}, uuid.New(), time.Now(), -1)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 	})
@@ -384,8 +384,8 @@ func TestInMemoryStreamImpl_EdgeCases(t *testing.T) {
 			go func(senderID int) {
 				defer func() { sendersComplete <- true }()
 				for j := 0; j < numMessages; j++ {
-					output := OutputType{"sender": senderID, "message": j}
-					errorType, err := stream.Send(output, uuid.New(), time.Now(), 0)
+					message := map[string]interface{}{"sender": senderID, "message": j}
+					errorType, err := stream.Send(message, uuid.New(), time.Now(), 0)
 					assert.NoError(t, err)
 					assert.Equal(t, ErrorTypeNone, errorType)
 				}
@@ -448,7 +448,7 @@ func TestInMemoryStreamImpl_LockingBehavior(t *testing.T) {
 		// This test verifies the current behavior
 
 		// Send to fill buffer
-		errorType, err := stream.Send(OutputType{"message": "first"}, uuid.New(), time.Now(), 0)
+		errorType, err := stream.Send(map[string]interface{}{"message": "first"}, uuid.New(), time.Now(), 0)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
@@ -456,7 +456,7 @@ func TestInMemoryStreamImpl_LockingBehavior(t *testing.T) {
 		resp, errorType, err := stream.Receive(1)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
-		assert.Equal(t, OutputType{"message": "first"}, resp.Output)
+		assert.Equal(t, map[string]interface{}{"message": "first"}, resp.Message)
 	})
 }
 
@@ -475,8 +475,8 @@ func TestInMemoryStreamImpl_Performance(t *testing.T) {
 
 		// Send many messages
 		for i := 0; i < numMessages; i++ {
-			output := OutputType{"message": "test", "index": i}
-			errorType, err := stream.Send(output, uuid.New(), time.Now(), 0)
+			message := map[string]interface{}{"message": "test", "index": i}
+			errorType, err := stream.Send(message, uuid.New(), time.Now(), 0)
 			require.NoError(t, err)
 			assert.Equal(t, ErrorTypeNone, errorType)
 		}
@@ -500,24 +500,24 @@ func TestInMemoryStreamImpl_Performance(t *testing.T) {
 }
 
 func TestInMemoryStreamImpl_ComprehensiveEdgeCases(t *testing.T) {
-	t.Run("LargeOutput", func(t *testing.T) {
+	t.Run("LargeMessage", func(t *testing.T) {
 		stream := NewInMemoryStreamImpl(10)
 		defer stream.Stop()
 
-		// Create a large output
-		largeOutput := OutputType{}
+		// Create a large message
+		largeMessage := map[string]interface{}{}
 		for i := 0; i < 1000; i++ {
-			largeOutput[fmt.Sprintf("field_%d", i)] = fmt.Sprintf("value_%d", i)
+			largeMessage[fmt.Sprintf("field_%d", i)] = fmt.Sprintf("value_%d", i)
 		}
 
-		errorType, err := stream.Send(largeOutput, uuid.New(), time.Now(), 0)
+		errorType, err := stream.Send(largeMessage, uuid.New(), time.Now(), 0)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
 		resp, errorType, err := stream.Receive(1)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
-		assert.Equal(t, largeOutput, resp.Output)
+		assert.Equal(t, largeMessage, resp.Message)
 	})
 
 	t.Run("ExtremeLongTimeout", func(t *testing.T) {
@@ -525,7 +525,7 @@ func TestInMemoryStreamImpl_ComprehensiveEdgeCases(t *testing.T) {
 		defer stream.Stop()
 
 		// Fill buffer
-		errorType, err := stream.Send(OutputType{"message": "fill"}, uuid.New(), time.Now(), 0)
+		errorType, err := stream.Send(map[string]interface{}{"message": "fill"}, uuid.New(), time.Now(), 0)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
@@ -540,7 +540,7 @@ func TestInMemoryStreamImpl_ComprehensiveEdgeCases(t *testing.T) {
 		go func() {
 			defer close(done)
 			// Use 10 second timeout instead of 1 hour to avoid test hanging
-			errorType, err := stream.Send(OutputType{"message": "long timeout"}, uuid.New(), time.Now(), 10)
+			errorType, err := stream.Send(map[string]interface{}{"message": "long timeout"}, uuid.New(), time.Now(), 10)
 			done <- struct {
 				errorType ErrorType
 				err       error
@@ -575,7 +575,7 @@ func TestInMemoryStreamImpl_ComprehensiveEdgeCases(t *testing.T) {
 			stream := NewInMemoryStreamImpl(5)
 
 			// Quick operation
-			errorType, err := stream.Send(OutputType{"iteration": i}, uuid.New(), time.Now(), 0)
+			errorType, err := stream.Send(map[string]interface{}{"iteration": i}, uuid.New(), time.Now(), 0)
 			require.NoError(t, err)
 			assert.Equal(t, ErrorTypeNone, errorType)
 
@@ -590,22 +590,22 @@ func TestInMemoryStreamImpl_ComprehensiveEdgeCases(t *testing.T) {
 		defer stream.Stop()
 
 		// Mix circular buffer and blocking modes
-		outputs := []OutputType{
+		messages := []map[string]interface{}{
 			{"mode": "circular", "step": 1},
 			{"mode": "blocking", "step": 2},
 			{"mode": "circular", "step": 3},
 		}
 
 		// Send with different modes
-		errorType, err := stream.Send(outputs[0], uuid.New(), time.Now(), 0) // circular
+		errorType, err := stream.Send(messages[0], uuid.New(), time.Now(), 0) // circular
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
-		errorType, err = stream.Send(outputs[1], uuid.New(), time.Now(), 5) // blocking
+		errorType, err = stream.Send(messages[1], uuid.New(), time.Now(), 5) // blocking
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
-		errorType, err = stream.Send(outputs[2], uuid.New(), time.Now(), 0) // circular
+		errorType, err = stream.Send(messages[2], uuid.New(), time.Now(), 0) // circular
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
@@ -614,7 +614,7 @@ func TestInMemoryStreamImpl_ComprehensiveEdgeCases(t *testing.T) {
 			resp, errorType, err := stream.Receive(1)
 			require.NoError(t, err)
 			assert.Equal(t, ErrorTypeNone, errorType)
-			assert.Equal(t, outputs[i], resp.Output)
+			assert.Equal(t, messages[i], resp.Message)
 		}
 	})
 
@@ -623,13 +623,13 @@ func TestInMemoryStreamImpl_ComprehensiveEdgeCases(t *testing.T) {
 		defer stream.Stop()
 
 		// Fill buffer
-		errorType, err := stream.Send(OutputType{"message": "fill"}, uuid.New(), time.Now(), 0)
+		errorType, err := stream.Send(map[string]interface{}{"message": "fill"}, uuid.New(), time.Now(), 0)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
 		// Test minimum timeout (1 second)
 		start := time.Now()
-		errorType, err = stream.Send(OutputType{"message": "min timeout"}, uuid.New(), time.Now(), 1)
+		errorType, err = stream.Send(map[string]interface{}{"message": "min timeout"}, uuid.New(), time.Now(), 1)
 		duration := time.Since(start)
 
 		require.Error(t, err)
@@ -649,7 +649,7 @@ func TestInMemoryStreamImpl_ComprehensiveEdgeCases(t *testing.T) {
 			uid := uuid.New()
 			uuids[uid.String()] = true
 
-			errorType, err := stream.Send(OutputType{"index": i}, uid, time.Now(), 0)
+			errorType, err := stream.Send(map[string]interface{}{"index": i}, uid, time.Now(), 0)
 			require.NoError(t, err)
 			assert.Equal(t, ErrorTypeNone, errorType)
 		}
@@ -664,8 +664,8 @@ func TestInMemoryStreamImpl_ComprehensiveEdgeCases(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, ErrorTypeNone, errorType)
 
-			receivedUUIDs[resp.OutputUuid.String()] = true
-			assert.True(t, uuids[resp.OutputUuid.String()], "Received UUID should be one that was sent")
+			receivedUUIDs[resp.MessageUuid.String()] = true
+			assert.True(t, uuids[resp.MessageUuid.String()], "Received UUID should be one that was sent")
 		}
 
 		assert.Equal(t, 50, len(receivedUUIDs))
@@ -683,7 +683,7 @@ func TestInMemoryStreamImpl_ComprehensiveEdgeCases(t *testing.T) {
 		}
 
 		for i, ts := range timestamps {
-			errorType, err := stream.Send(OutputType{"index": i}, uuid.New(), ts, 0)
+			errorType, err := stream.Send(map[string]interface{}{"index": i}, uuid.New(), ts, 0)
 			require.NoError(t, err)
 			assert.Equal(t, ErrorTypeNone, errorType)
 		}
@@ -707,7 +707,7 @@ func TestInMemoryStreamImpl_ErrorScenarios(t *testing.T) {
 		require.NoError(t, err)
 
 		// Try to send after stop - should get stream stopped error
-		errorType, err := stream.Send(OutputType{"message": "after stop"}, uuid.New(), time.Now(), 0)
+		errorType, err := stream.Send(map[string]interface{}{"message": "after stop"}, uuid.New(), time.Now(), 0)
 		assert.Error(t, err)
 		assert.Equal(t, ErrorTypeStreamStopped, errorType)
 		assert.Equal(t, ErrStreamStopped, err)
@@ -732,12 +732,12 @@ func TestInMemoryStreamImpl_ErrorScenarios(t *testing.T) {
 		defer stream.Stop()
 
 		// Fill buffer
-		errorType, err := stream.Send(OutputType{"message": "fill"}, uuid.New(), time.Now(), 0)
+		errorType, err := stream.Send(map[string]interface{}{"message": "fill"}, uuid.New(), time.Now(), 0)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
 		// Test zero timeout - should use circular buffer mode
-		errorType, err = stream.Send(OutputType{"message": "zero timeout"}, uuid.New(), time.Now(), 0)
+		errorType, err = stream.Send(map[string]interface{}{"message": "zero timeout"}, uuid.New(), time.Now(), 0)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
 
@@ -745,7 +745,7 @@ func TestInMemoryStreamImpl_ErrorScenarios(t *testing.T) {
 		resp, errorType, err := stream.Receive(1)
 		require.NoError(t, err)
 		assert.Equal(t, ErrorTypeNone, errorType)
-		assert.Equal(t, OutputType{"message": "zero timeout"}, resp.Output)
+		assert.Equal(t, map[string]interface{}{"message": "zero timeout"}, resp.Message)
 	})
 
 	t.Run("CircularBufferIterationLimit", func(t *testing.T) {
@@ -775,7 +775,7 @@ func TestInMemoryStreamImpl_ErrorScenarios(t *testing.T) {
 				defer wg.Done()
 				for j := 0; j < attempts; j++ {
 					errorType, err := stream.Send(
-						OutputType{"sender": id, "attempt": j},
+						map[string]interface{}{"sender": id, "attempt": j},
 						uuid.New(),
 						time.Now(),
 						0, // circular buffer mode
@@ -818,13 +818,13 @@ func BenchmarkInMemoryStreamImpl_Send(b *testing.B) {
 	stream := NewInMemoryStreamImpl(1000000) // Large buffer to avoid blocking
 	defer stream.Stop()
 
-	output := OutputType{"message": "benchmark"}
+	message := map[string]interface{}{"message": "benchmark"}
 	uid := uuid.New()
 	timestamp := time.Now()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		errorType, err := stream.Send(output, uid, timestamp, 0)
+		errorType, err := stream.Send(message, uid, timestamp, 0)
 		if err != nil || errorType != ErrorTypeNone {
 			b.Fatalf("Send failed: %v, errorType: %v", err, errorType)
 		}
